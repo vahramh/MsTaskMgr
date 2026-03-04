@@ -230,6 +230,22 @@ export default function SharedTasksPage() {
 
   const [expanded, setExpanded] = useState<Record<string, true>>({});
   const [subtrees, setSubtrees] = useState<Record<string, SubtreeState>>({});
+  const subtreesRef = useRef<Record<string, SubtreeState>>({});
+  // Keep ref in sync during render so reads are never one-render behind.
+  subtreesRef.current = subtrees;
+
+  const setSubtreesSync = useCallback(
+    (
+      updater: (prev: Record<string, SubtreeState>) => Record<string, SubtreeState>
+    ) => {
+      setSubtrees((prev) => {
+        const next = updater(prev);
+        subtreesRef.current = next;
+        return next;
+      });
+    },
+    []
+  );
   const [pendingByKey, setPendingByKey] = useState<Record<string, true>>({});
   const [newChildTitle, setNewChildTitle] = useState<Record<string, string>>({});
 
@@ -276,7 +292,7 @@ export default function SharedTasksPage() {
     setRootError(null);
     setRootLoading(false);
     setExpanded({});
-    setSubtrees({});
+    setSubtreesSync(() => ({}));
     setPendingByKey({});
     setNewChildTitle({});
     setEditor(null);
@@ -328,7 +344,7 @@ export default function SharedTasksPage() {
       const ac = new AbortController();
       subtreeAbortRef.current.set(parentTaskId, ac);
 
-      setSubtrees((prev) => ({
+      setSubtreesSync((prev) => ({
         ...prev,
         [parentTaskId]: { ...existing, loading: true },
       }));
@@ -336,14 +352,14 @@ export default function SharedTasksPage() {
       try {
         const r = await listSharedSubtasks(tokens, ownerSub, rootTaskId, parentTaskId, { limit: 50 }, ac.signal);
         if (subtreeAbortRef.current.get(parentTaskId) !== ac) return;
-        setSubtrees((prev) => ({
+        setSubtreesSync((prev) => ({
           ...prev,
           [parentTaskId]: { items: r.items, loaded: true, loading: false, nextToken: r.nextToken },
         }));
       } catch (e) {
         if (isAbortError(e)) return;
         setRootError(toUiError(e));
-        setSubtrees((prev) => ({
+        setSubtreesSync((prev) => ({
           ...prev,
           [parentTaskId]: { ...existing, loading: false, loaded: existing.loaded },
         }));
@@ -363,7 +379,7 @@ export default function SharedTasksPage() {
       const ac = new AbortController();
       subtreeAbortRef.current.set(parentTaskId, ac);
 
-      setSubtrees((prev) => ({
+      setSubtreesSync((prev) => ({
         ...prev,
         [parentTaskId]: { ...st, loadingMore: true },
       }));
@@ -371,7 +387,7 @@ export default function SharedTasksPage() {
       try {
         const r = await listSharedSubtasks(tokens, ownerSub, rootTaskId, parentTaskId, { limit: 50, nextToken: st.nextToken }, ac.signal);
         if (subtreeAbortRef.current.get(parentTaskId) !== ac) return;
-        setSubtrees((prev) => {
+        setSubtreesSync((prev) => {
           const cur = prev[parentTaskId] ?? st;
           const merged = [...(cur.items ?? [])];
           const seen = new Set(merged.map((x) => x.taskId));
@@ -396,7 +412,7 @@ export default function SharedTasksPage() {
       } catch (e) {
         if (isAbortError(e)) return;
         setRootError(toUiError(e));
-        setSubtrees((prev) => ({
+        setSubtreesSync((prev) => ({
           ...prev,
           [parentTaskId]: { ...st, loadingMore: false },
         }));
@@ -521,7 +537,7 @@ export default function SharedTasksPage() {
       // Subtask
       const parentTaskId = prev.parentTaskId;
       setPending(parentTaskId, prev.taskId, true);
-      setSubtrees((prevMap) => {
+      setSubtreesSync((prevMap) => {
         const st = prevMap[parentTaskId] ?? { items: [], loaded: true, loading: false };
         return {
           ...prevMap,
@@ -537,7 +553,7 @@ export default function SharedTasksPage() {
           status: overrideStatus ?? partial.status,
           expectedRev: prev.rev,
         });
-        setSubtrees((prevMap) => {
+        setSubtreesSync((prevMap) => {
           const st = prevMap[parentTaskId] ?? { items: [], loaded: true, loading: false };
           return {
             ...prevMap,
@@ -548,7 +564,7 @@ export default function SharedTasksPage() {
           };
         });
       } catch (e) {
-        setSubtrees((prevMap) => {
+        setSubtreesSync((prevMap) => {
           const st = prevMap[parentTaskId] ?? { items: [], loaded: true, loading: false };
           return {
             ...prevMap,
@@ -633,7 +649,7 @@ const toggleCompleteNode = useCallback(
     if (!parentTaskId) return; // defensive; satisfies strict typing
 
     setPending(parentTaskId, prev.taskId, true);
-    setSubtrees((prevMap) => {
+    setSubtreesSync((prevMap) => {
       const st = prevMap[parentTaskId] ?? { items: [], loaded: true, loading: false };
       return {
         ...prevMap,
@@ -653,7 +669,7 @@ const toggleCompleteNode = useCallback(
               expectedRev: prev.rev,
             } as any);
 
-      setSubtrees((prevMap) => {
+      setSubtreesSync((prevMap) => {
         const st = prevMap[parentTaskId] ?? { items: [], loaded: true, loading: false };
         return {
           ...prevMap,
@@ -664,7 +680,7 @@ const toggleCompleteNode = useCallback(
         };
       });
     } catch (e) {
-      setSubtrees((prevMap) => {
+      setSubtreesSync((prevMap) => {
         const st = prevMap[parentTaskId] ?? { items: [], loaded: true, loading: false };
         return {
           ...prevMap,
@@ -692,7 +708,7 @@ const toggleCompleteNode = useCallback(
       if (!title) return;
 
       const optimistic = makeTempSubtask(parentTaskId, title);
-      setSubtrees((prev) => {
+      setSubtreesSync((prev) => {
         const st = prev[parentTaskId] ?? { items: [], loaded: true, loading: false };
         return {
           ...prev,
@@ -703,7 +719,7 @@ const toggleCompleteNode = useCallback(
       setPending(parentTaskId, optimistic.taskId, true);
       try {
         const r = await createSharedSubtask(tokens, ptr.ownerSub, ptr.rootTaskId, parentTaskId, { title, entityType: "action", state: "inbox" });
-        setSubtrees((prev) => {
+        setSubtreesSync((prev) => {
           const st = prev[parentTaskId] ?? { items: [], loaded: true, loading: false };
           return {
             ...prev,
@@ -714,7 +730,7 @@ const toggleCompleteNode = useCallback(
           };
         });
       } catch (e) {
-        setSubtrees((prev) => {
+        setSubtreesSync((prev) => {
           const st = prev[parentTaskId] ?? { items: [], loaded: true, loading: false };
           return {
             ...prev,
@@ -739,7 +755,7 @@ const toggleCompleteNode = useCallback(
       const parentTaskId = node.parentTaskId;
       const snapshot = getSubtree(parentTaskId).items;
       setPending(parentTaskId, node.taskId, true);
-      setSubtrees((prev) => {
+      setSubtreesSync((prev) => {
         const st = prev[parentTaskId] ?? { items: [], loaded: true, loading: false };
         return {
           ...prev,
@@ -749,7 +765,7 @@ const toggleCompleteNode = useCallback(
       try {
         await deleteSharedSubtask(tokens, ptr.ownerSub, ptr.rootTaskId, parentTaskId, node.taskId);
       } catch (e) {
-        setSubtrees((prev) => ({
+        setSubtreesSync((prev) => ({
           ...prev,
           [parentTaskId]: { ...prev[parentTaskId], items: snapshot },
         }));
