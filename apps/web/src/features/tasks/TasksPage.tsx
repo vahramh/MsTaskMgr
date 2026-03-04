@@ -117,6 +117,42 @@ function stateLabel(s: WorkflowState): string {
   }
 }
 
+function stateTone(s: WorkflowState): { bg: string; fg: string; border: string } {
+  switch (s) {
+    case "inbox":
+      return { bg: "#eef2ff", fg: "#1e3a8a", border: "#c7d2fe" };
+    case "next":
+      return { bg: "#ecfdf5", fg: "#065f46", border: "#a7f3d0" };
+    case "waiting":
+      return { bg: "#fffbeb", fg: "#92400e", border: "#fde68a" };
+    case "scheduled":
+      return { bg: "#eff6ff", fg: "#1d4ed8", border: "#bfdbfe" };
+    case "someday":
+      return { bg: "#f5f3ff", fg: "#5b21b6", border: "#ddd6fe" };
+    case "reference":
+      return { bg: "#f3f4f6", fg: "#374151", border: "#e5e7eb" };
+    case "completed":
+      return { bg: "#f3f4f6", fg: "#6b7280", border: "#e5e7eb" };
+  }
+}
+
+function StateBadge({ state }: { state: WorkflowState }) {
+  const t = stateTone(state);
+  return (
+    <span
+      className="state-badge"
+      style={{
+        background: t.bg,
+        color: t.fg,
+        border: `1px solid ${t.border}`,
+      }}
+      title={stateLabel(state)}
+    >
+      {stateLabel(state).toUpperCase()}
+    </span>
+  );
+}
+
 type Editor = {
   taskId: string;
   parentTaskId?: string;
@@ -191,6 +227,39 @@ function nowIso(): string {
   return new Date().toISOString();
 }
 
+function isAction(t: Task): boolean {
+  return deriveEntityType(t) === "action";
+}
+
+function isProject(t: Task): boolean {
+  return deriveEntityType(t) === "project";
+}
+
+function isValidIsoDateOnly(s: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return false;
+  const d = new Date(s);
+  return !Number.isNaN(d.getTime());
+}
+
+async function promptWaitingFor(current?: string): Promise<string | null> {
+  const v = window.prompt("Waiting for…", (current ?? "").trim());
+  if (v === null) return null;
+  const t = v.trim();
+  return t.length ? t : null;
+}
+
+async function promptDueDate(current?: string): Promise<string | null> {
+  const v = window.prompt("Due date (YYYY-MM-DD)", (current ?? "").trim());
+  if (v === null) return null;
+  const t = v.trim();
+  if (!t) return null;
+  if (!isValidIsoDateOnly(t)) {
+    alert("Please enter a valid date in YYYY-MM-DD format.");
+    return null;
+  }
+  return t;
+}
+
 function makeTempSubtask(parentTaskId: string, title: string): Task {
   const now = nowIso();
   return {
@@ -239,6 +308,20 @@ export default function TasksPage() {
 
   const [searchParams, setSearchParams] = useSearchParams();
   const viewParam = (searchParams.get("view") ?? "inbox") as string;
+  const focusId = searchParams.get("focus") ?? null;
+  const focusViewParam = (searchParams.get("pview") ?? "next") as string;
+  const focusView: WorkflowState | "all" = ([
+    "all",
+    "inbox",
+    "next",
+    "waiting",
+    "scheduled",
+    "someday",
+    "reference",
+    "completed",
+  ].includes(focusViewParam)
+    ? (focusViewParam as any)
+    : "next");
   const view: WorkflowState | "projects" = ([
     "inbox",
     "next",
@@ -251,6 +334,60 @@ export default function TasksPage() {
   ].includes(viewParam)
     ? (viewParam as any)
     : "inbox");
+
+  // ===== Phase 6 PR1: tabs + counts =====
+  type ViewKey = WorkflowState | "projects";
+
+  const VIEW_DEFS: Array<{ key: ViewKey; label: string }> = [
+    { key: "inbox", label: "Inbox" },
+    { key: "next", label: "Next" },
+    { key: "waiting", label: "Waiting" },
+    { key: "scheduled", label: "Scheduled" },
+    { key: "someday", label: "Someday" },
+    { key: "reference", label: "Reference" },
+    { key: "completed", label: "Completed" },
+    { key: "projects", label: "Projects" },
+  ];
+
+  const viewCounts = useMemo(() => {
+    const counts: Record<ViewKey, number> = {
+      inbox: 0,
+      next: 0,
+      waiting: 0,
+      scheduled: 0,
+      someday: 0,
+      reference: 0,
+      completed: 0,
+      projects: 0,
+    };
+
+    for (const t of items) {
+      const s = deriveState(t);
+      counts[s] = (counts[s] ?? 0) + 1;
+      if (deriveEntityType(t) === "project") counts.projects += 1;
+    }
+    return counts;
+  }, [items]);
+  // ===== Phase 6 PR4.3: focused project workspace =====
+  type FocusViewKey = WorkflowState | "all";
+  const FOCUS_VIEW_DEFS: Array<{ key: FocusViewKey; label: string }> = [
+    { key: "all", label: "All" },
+    { key: "next", label: "Next" },
+    { key: "waiting", label: "Waiting" },
+    { key: "scheduled", label: "Scheduled" },
+    { key: "inbox", label: "Inbox" },
+    { key: "someday", label: "Someday" },
+    { key: "reference", label: "Reference" },
+    { key: "completed", label: "Completed" },
+  ];
+  // =====================================
+
+  // ===== Phase 6 PR4.2: Project focus lookup =====
+  const focused = useMemo(() => {
+    if (!focusId) return null;
+    return items.find((t) => t.taskId === focusId) ?? null;
+  }, [items, focusId]);
+  // ==============================================
 
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
@@ -265,96 +402,145 @@ export default function TasksPage() {
   const [createWaitingFor, setCreateWaitingFor] = useState<string>("");
   const [editor, setEditor] = useState<Editor>(null);
 
+  const [shareFor, setShareFor] = useState<string | null>(null);
+  const [shareGranteeSub, setShareGranteeSub] = useState<string>("");
+  const [shareMode, setShareMode] = useState<"VIEW" | "EDIT">("VIEW");
+  const [shares, setShares] = useState<Array<{ granteeSub: string; mode: "VIEW" | "EDIT"; createdAt: string }>>([]);
+  const [sharesLoading, setSharesLoading] = useState<boolean>(false);
+  const [sharesError, setSharesError] = useState<UiError | null>(null);
 
-const [shareFor, setShareFor] = useState<string | null>(null);
-const [shareGranteeSub, setShareGranteeSub] = useState<string>("");
-const [shareMode, setShareMode] = useState<"VIEW" | "EDIT">("VIEW");
-const [shares, setShares] = useState<Array<{ granteeSub: string; mode: "VIEW" | "EDIT"; createdAt: string }>>([]);
-const [sharesLoading, setSharesLoading] = useState<boolean>(false);
-const [sharesError, setSharesError] = useState<UiError | null>(null);
+  const sharesAbortRef = useRef<AbortController | null>(null);
 
-const sharesAbortRef = useRef<AbortController | null>(null);
+  const setFocus = useCallback(
+    (taskId: string) => {
+      setSearchParams((prev) => {
+        const next = new URLSearchParams(prev);
+        next.set("view", "projects");
+        next.set("focus", taskId);
+        next.set("pview", "next");
+        return next;
+      });
+    },
+    [setSearchParams]
+  );
 
-const openShares = useCallback(
-  async (rootTaskId: string) => {
-    if (!tokens) return;
-    setShareFor(rootTaskId);
+  const clearFocus = useCallback(() => {
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      next.delete("focus");
+      next.delete("pview");
+      next.set("view", "projects");
+      return next;
+    });
+  }, [setSearchParams]);
+
+  const openShares = useCallback(
+    async (rootTaskId: string) => {
+      if (!tokens) return;
+      setShareFor(rootTaskId);
+      setShares([]);
+      setSharesError(null);
+      setSharesLoading(true);
+
+      sharesAbortRef.current?.abort();
+      const ac = new AbortController();
+      sharesAbortRef.current = ac;
+
+      try {
+        const resp = await listShares(tokens, rootTaskId, { limit: 50 }, ac.signal);
+        setShares(resp.items.map((g) => ({ granteeSub: g.granteeSub, mode: g.mode, createdAt: g.createdAt })));
+      } catch (e) {
+        if (isAbortError(e)) return;
+        setSharesError(toUiError(e));
+      } finally {
+        setSharesLoading(false);
+      }
+    },
+    [tokens]
+  );
+
+  const closeShares = useCallback(() => {
+    sharesAbortRef.current?.abort();
+    setShareFor(null);
     setShares([]);
     setSharesError(null);
-    setSharesLoading(true);
+    setShareGranteeSub("");
+    setShareMode("VIEW");
+  }, []);
 
-    sharesAbortRef.current?.abort();
-    const ac = new AbortController();
-    sharesAbortRef.current = ac;
+  const submitShare = useCallback(
+    async (rootTaskId: string) => {
+      if (!tokens) return;
+      const sub = shareGranteeSub.trim();
+      if (!sub) {
+        setSharesError({ message: "Enter a grantee sub" });
+        return;
+      }
+      setSharesError(null);
+      setSharesLoading(true);
+      try {
+        await createShare(tokens, rootTaskId, { granteeSub: sub, mode: shareMode });
+        await openShares(rootTaskId);
+        setShareGranteeSub("");
+      } catch (e) {
+        if (isAbortError(e)) return;
+        setSharesError(toUiError(e));
+      } finally {
+        setSharesLoading(false);
+      }
+    },
+    [tokens, shareGranteeSub, shareMode, openShares]
+  );
 
-    try {
-      const resp = await listShares(tokens, rootTaskId, { limit: 50 }, ac.signal);
-      setShares(resp.items.map((g) => ({ granteeSub: g.granteeSub, mode: g.mode, createdAt: g.createdAt })));
-    } catch (e) {
-      if (isAbortError(e)) return;
-      setSharesError(toUiError(e));
-    } finally {
-      setSharesLoading(false);
-    }
-  },
-  [tokens]
-);
-
-const closeShares = useCallback(() => {
-  sharesAbortRef.current?.abort();
-  setShareFor(null);
-  setShares([]);
-  setSharesError(null);
-  setShareGranteeSub("");
-  setShareMode("VIEW");
-}, []);
-
-const submitShare = useCallback(
-  async (rootTaskId: string) => {
-    if (!tokens) return;
-    const sub = shareGranteeSub.trim();
-    if (!sub) {
-      setSharesError({ message: "Enter a grantee sub" });
-      return;
-    }
-    setSharesError(null);
-    setSharesLoading(true);
-    try {
-      await createShare(tokens, rootTaskId, { granteeSub: sub, mode: shareMode });
-      await openShares(rootTaskId);
-      setShareGranteeSub("");
-    } catch (e) {
-      if (isAbortError(e)) return;
-      setSharesError(toUiError(e));
-    } finally {
-      setSharesLoading(false);
-    }
-  },
-  [tokens, shareGranteeSub, shareMode, openShares]
-);
-
-const removeShare = useCallback(
-  async (rootTaskId: string, granteeSub: string) => {
-    if (!tokens) return;
-    if (!confirm(`Revoke access for ${granteeSub}?`)) return;
-    setSharesError(null);
-    setSharesLoading(true);
-    try {
-      await revokeShare(tokens, rootTaskId, granteeSub);
-      await openShares(rootTaskId);
-    } catch (e) {
-      if (isAbortError(e)) return;
-      setSharesError(toUiError(e));
-    } finally {
-      setSharesLoading(false);
-    }
-  },
-  [tokens, openShares]
-);
+  const removeShare = useCallback(
+    async (rootTaskId: string, granteeSub: string) => {
+      if (!tokens) return;
+      if (!confirm(`Revoke access for ${granteeSub}?`)) return;
+      setSharesError(null);
+      setSharesLoading(true);
+      try {
+        await revokeShare(tokens, rootTaskId, granteeSub);
+        await openShares(rootTaskId);
+      } catch (e) {
+        if (isAbortError(e)) return;
+        setSharesError(toUiError(e));
+      } finally {
+        setSharesLoading(false);
+      }
+    },
+    [tokens, openShares]
+  );
 
   const [subError, setSubError] = useState<UiError | null>(null);
   const [expanded, setExpanded] = useState<Record<string, true>>({});
   const [subtrees, setSubtrees] = useState<Record<string, SubtreeState>>({});
+  const focusedProject = useMemo(() => {
+    if (!focusId) return null;
+    return items.find((t) => t.taskId === focusId) ?? null;
+  }, [items, focusId]);
+
+  const focusCounts = useMemo(() => {
+    const counts: Record<FocusViewKey, number> = {
+      all: 0,
+      inbox: 0,
+      next: 0,
+      waiting: 0,
+      scheduled: 0,
+      someday: 0,
+      reference: 0,
+      completed: 0,
+    };
+    if (!focusId) return counts;
+    const st = subtrees[focusId];
+    const list = st?.items ?? [];
+    counts.all = list.length;
+    for (const t of list) {
+      const s = deriveState(t);
+      counts[s] = (counts[s] ?? 0) + 1;
+    }
+    return counts;
+  }, [focusId, subtrees]);
+
   const [subPendingByKey, setSubPendingByKey] = useState<Record<string, true>>({});
   const [newChildTitle, setNewChildTitle] = useState<Record<string, string>>({});
   const subAbortRef = useRef<Map<string, AbortController>>(new Map());
@@ -387,24 +573,23 @@ const removeShare = useCallback(
     }
   }, [attrsJsonTrim]);
 
+  const gtdCreateError = useMemo(() => {
+    const wf = createWaitingFor.trim();
+    const ctx = createContext.trim();
+    // Basic UX guards; backend remains authoritative.
+    if (createEntityType === "project" && createState === "next") return "Projects cannot be in Next";
+    if (createState === "next" && createEntityType !== "action") return "Only actions can be in Next";
+    if (createState === "waiting" && !wf) return "Waiting requires 'Waiting for…'";
+    if (createState === "scheduled" && !dueDate) return "Scheduled requires a due date";
+    if (createState === "inbox" && dueDate) return "Inbox items cannot have a due date";
+    // Keep context small; backend may enforce separately.
+    if (ctx.length > 40) return "Context is too long (max 40 characters)";
+    if (wf.length > 200) return "Waiting for is too long (max 200 characters)";
+    return null;
+  }, [createEntityType, createState, createWaitingFor, createContext, dueDate]);
 
-const gtdCreateError = useMemo(() => {
-  const wf = createWaitingFor.trim();
-  const ctx = createContext.trim();
-  // Basic UX guards; backend remains authoritative.
-  if (createEntityType === "project" && createState === "next") return "Projects cannot be in Next";
-  if (createState === "next" && createEntityType !== "action") return "Only actions can be in Next";
-  if (createState === "waiting" && !wf) return "Waiting requires 'Waiting for…'";
-  if (createState === "scheduled" && !dueDate) return "Scheduled requires a due date";
-  if (createState === "inbox" && dueDate) return "Inbox items cannot have a due date";
-  // Keep context small; backend may enforce separately.
-  if (ctx.length > 40) return "Context is too long (max 40 characters)";
-  if (wf.length > 200) return "Waiting for is too long (max 200 characters)";
-  return null;
-}, [createEntityType, createState, createWaitingFor, createContext, dueDate]);
-
-const canCreate =
-  !titleError && !descriptionError && !attrsError && !gtdCreateError && titleTrim.length > 0 && !creating;
+  const canCreate =
+    !titleError && !descriptionError && !attrsError && !gtdCreateError && titleTrim.length > 0 && !creating;
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -527,6 +712,12 @@ const canCreate =
     [tokens, clearAllErrors, getSubtree]
   );
 
+  React.useEffect(() => {
+    if (!focusId) return;
+    if (view !== "projects") return;
+    void loadChildren(focusId);
+    setExpandedOn(focusId, true);
+  }, [focusId, view, loadChildren, setExpandedOn]);
 
   const loadMoreChildren = useCallback(
     async (parentTaskId: string) => {
@@ -744,86 +935,143 @@ const canCreate =
     [tokens, patch, clearAllErrors, setSubPending, loadChildren]
   );
 
-  
-const toggleCompleteNode = useCallback(
-  async (node: Task) => {
-    if (!tokens) return;
+  const quickTransition = useCallback(
+    async (node: Task, target: WorkflowState) => {
+      const cur = deriveState(node);
+      const et = deriveEntityType(node);
 
-    const state = deriveState(node);
+      if (cur === target) return;
 
-    // Root task -> delegate to hook (complete/reopen endpoints).
-    if (!node.parentTaskId) {
-      await toggleComplete(node);
-      return;
-    }
-
-    const parentTaskId = node.parentTaskId;
-
-    // Subtasks: complete via state transition; reopen via dedicated endpoint.
-    if (state === "completed") {
-      clearAllErrors();
-
-      const prev = node;
-      setSubPending(parentTaskId, prev.taskId, true);
-
-      // optimistic
-      const optimistic: Task = {
-        ...prev,
-        state: prev.dueDate ? "scheduled" : "inbox",
-        status: "OPEN",
-        updatedAt: nowIso(),
-      };
-
-      setSubtrees((prevMap) => {
-        const st = prevMap[parentTaskId] ?? { items: [], loaded: true, loading: false };
-        return {
-          ...prevMap,
-          [parentTaskId]: {
-            ...st,
-            items: st.items.map((t) => (t.taskId === prev.taskId ? optimistic : t)),
-          },
-        };
-      });
-
-      try {
-        const r = await reopenSubtask(tokens, parentTaskId, prev.taskId, prev.rev);
-        setSubtrees((prevMap) => {
-          const st = prevMap[parentTaskId] ?? { items: [], loaded: true, loading: false };
-          return {
-            ...prevMap,
-            [parentTaskId]: {
-              ...st,
-              items: st.items.map((t) => (t.taskId === prev.taskId ? r.task : t)),
-            },
-          };
-        });
-      } catch (e) {
-        // rollback
-        setSubtrees((prevMap) => {
-          const st = prevMap[parentTaskId] ?? { items: [], loaded: true, loading: false };
-          return {
-            ...prevMap,
-            [parentTaskId]: {
-              ...st,
-              items: st.items.map((t) => (t.taskId === prev.taskId ? prev : t)),
-            },
-          };
-        });
-        if (isAbortError(e)) return;
-        const reloaded = await handleConflict(e, () => loadChildren(parentTaskId, true), setSubError);
-        if (!reloaded) setSubError(toUiError(e));
-      } finally {
-        setSubPending(parentTaskId, prev.taskId, false);
+      // GTD UX guards (backend remains authoritative)
+      if (target === "next" && et !== "action") {
+        alert("Only actions can be moved to Next.");
+        return;
+      }
+      if (et === "project" && target === "next") {
+        alert("Projects cannot be in Next.");
+        return;
       }
 
-      return;
-    }
+      // Handle required fields by state
+      if (target === "waiting") {
+        const wf = await promptWaitingFor(node.waitingFor);
+        if (!wf) return;
+        await patchNode(node, {
+          state: "waiting",
+          waitingFor: wf,
+        } as any);
+        return;
+      }
 
-    // complete subtask (state transition)
-    await patchNode(node, { state: "completed" } as any);
-  },
-  [tokens, toggleComplete, clearAllErrors, setSubPending, setSubtrees, loadChildren, patchNode]
-);
+      if (target === "scheduled") {
+        const due = node.dueDate?.trim() ? node.dueDate.trim() : await promptDueDate("");
+        if (!due) return;
+        await patchNode(node, {
+          state: "scheduled",
+          dueDate: due,
+        } as any);
+        return;
+      }
+
+      // Inbox must not have due date; waitingFor only relevant for Waiting
+      if (target === "inbox") {
+        await patchNode(node, {
+          state: "inbox",
+          dueDate: null,
+          waitingFor: null,
+        } as any);
+        return;
+      }
+
+      // Other states: we've already handled "waiting" above, so here target can never be "waiting".
+      // Clear waitingFor when moving out of waiting.
+      await patchNode(node, {
+        state: target,
+        waitingFor: null,
+      } as any);
+    },
+    [patchNode]
+  );
+
+  const toggleCompleteNode = useCallback(
+    async (node: Task) => {
+      if (!tokens) return;
+
+      const state = deriveState(node);
+
+      // Root task -> delegate to hook (complete/reopen endpoints).
+      if (!node.parentTaskId) {
+        await toggleComplete(node);
+        return;
+      }
+
+      const parentTaskId = node.parentTaskId;
+
+      // Subtasks: complete via state transition; reopen via dedicated endpoint.
+      if (state === "completed") {
+        clearAllErrors();
+
+        const prev = node;
+        setSubPending(parentTaskId, prev.taskId, true);
+
+        // optimistic
+        const optimistic: Task = {
+          ...prev,
+          state: prev.dueDate ? "scheduled" : "inbox",
+          status: "OPEN",
+          updatedAt: nowIso(),
+        };
+
+        setSubtrees((prevMap) => {
+          const st = prevMap[parentTaskId] ?? { items: [], loaded: true, loading: false };
+          return {
+            ...prevMap,
+            [parentTaskId]: {
+              ...st,
+              items: st.items.map((t) => (t.taskId === prev.taskId ? optimistic : t)),
+            },
+          };
+        });
+
+        try {
+          const r = await reopenSubtask(tokens, parentTaskId, prev.taskId, prev.rev);
+          setSubtrees((prevMap) => {
+            const st = prevMap[parentTaskId] ?? { items: [], loaded: true, loading: false };
+            return {
+              ...prevMap,
+              [parentTaskId]: {
+                ...st,
+                items: st.items.map((t) => (t.taskId === prev.taskId ? r.task : t)),
+              },
+            };
+          });
+        } catch (e) {
+          // rollback
+          setSubtrees((prevMap) => {
+            const st = prevMap[parentTaskId] ?? { items: [], loaded: true, loading: false };
+            return {
+              ...prevMap,
+              [parentTaskId]: {
+                ...st,
+                items: st.items.map((t) => (t.taskId === prev.taskId ? prev : t)),
+              },
+            };
+          });
+          if (isAbortError(e)) return;
+          const reloaded = await handleConflict(e, () => loadChildren(parentTaskId, true), setSubError);
+          if (!reloaded) setSubError(toUiError(e));
+        } finally {
+          setSubPending(parentTaskId, prev.taskId, false);
+        }
+
+        return;
+      }
+
+      // complete subtask (state transition)
+      await patchNode(node, { state: "completed" } as any);
+    },
+    [tokens, toggleComplete, clearAllErrors, setSubPending, setSubtrees, loadChildren, patchNode]
+  );
 
   const deleteNode = useCallback(
     async (node: Task) => {
@@ -874,9 +1122,17 @@ const toggleCompleteNode = useCallback(
   );
 
   const renderChildren = useCallback(
-    (parentTaskId: string, depth: number) => {
+    (
+      parentTaskId: string,
+      depth: number,
+      opts?: { filterState?: WorkflowState | "all" }
+    ) => {
       const st = getSubtree(parentTaskId);
       const paddingLeft = Math.min(depth * 18, 72);
+
+      const filterState = opts?.filterState ?? "all";
+      const filteredItems =
+        filterState === "all" ? st.items : st.items.filter((x) => deriveState(x) === filterState);
 
       return (
         <div style={{ marginTop: 10, marginLeft: paddingLeft }}>
@@ -884,7 +1140,11 @@ const toggleCompleteNode = useCallback(
             <div className="row space-between" style={{ marginBottom: 8 }}>
               <div style={{ fontWeight: 700 }}>Subtasks</div>
               <div className="help">
-                {st.loading ? "Loading…" : st.loaded ? `${st.items.length} item${st.items.length === 1 ? "" : "s"}${st.nextToken ? " (more)" : ""}` : ""}
+                {st.loading
+                  ? "Loading…"
+                  : st.loaded
+                    ? `${filteredItems.length} shown / ${st.items.length} total${st.nextToken ? " (more)" : ""}`
+                    : ""}
               </div>
             </div>
 
@@ -936,7 +1196,7 @@ const toggleCompleteNode = useCallback(
               <div className="help">No subtasks yet.</div>
             ) : (
               <div style={{ display: "grid", gap: 8 }}>
-                {st.items.map((c) => {
+                {filteredItems.map((c) => {
                   const pending = pendingFor(c);
                   const isEditing = editor?.taskId === c.taskId;
                   const expandedHere = isExpanded(c.taskId);
@@ -944,7 +1204,9 @@ const toggleCompleteNode = useCallback(
                   return (
                     <div
                       key={c.taskId}
-                      className="card"
+                      className="card task-card"
+                      data-state={deriveState(c)}
+                      data-entity={deriveEntityType(c)}
                       style={{
                         padding: 12,
                         marginLeft: 12,
@@ -958,73 +1220,73 @@ const toggleCompleteNode = useCallback(
                             <div style={{ display: "grid", gap: 8 }}>
                               <input className="input" value={editor.title} onChange={(e) => setEditor((p) => (p ? { ...p, title: e.target.value } : p))} />
                               <textarea className="input" rows={3} value={editor.description} onChange={(e) => setEditor((p) => (p ? { ...p, description: e.target.value } : p))} />
-                              
-<div className="row" style={{ gap: 10, flexWrap: "wrap" }}>
-  <div style={{ minWidth: 180 }}>
-    <div className="label">Type</div>
-    <select
-      className="input"
-      value={editor.entityType}
-      onChange={(e) =>
-        setEditor((p) => (p ? { ...p, entityType: e.target.value as any } : p))
-      }
-      disabled={Boolean(editor.parentTaskId)}
-    >
-      <option value="action">Action</option>
-      <option value="project">Project</option>
-    </select>
-  </div>
 
-  <div style={{ minWidth: 200 }}>
-    <div className="label">State</div>
-    <select
-      className="input"
-      value={editor.state}
-      onChange={(e) => {
-        const next = e.target.value as any;
-        setEditor((p) => {
-          if (!p) return p;
-          const clearedDue = next === "inbox" ? "" : p.dueDate;
-          const clearedWaiting = next === "waiting" ? p.waitingFor : "";
-          return { ...p, state: next, dueDate: clearedDue, waitingFor: clearedWaiting };
-        });
-      }}
-    >
-      <option value="inbox">Inbox</option>
-      <option value="next">Next</option>
-      <option value="waiting">Waiting</option>
-      <option value="scheduled">Scheduled</option>
-      <option value="someday">Someday</option>
-      <option value="reference">Reference</option>
-      <option value="completed">Completed</option>
-    </select>
-  </div>
+                              <div className="row" style={{ gap: 10, flexWrap: "wrap" }}>
+                                <div style={{ minWidth: 180 }}>
+                                  <div className="label">Type</div>
+                                  <select
+                                    className="input"
+                                    value={editor.entityType}
+                                    onChange={(e) =>
+                                      setEditor((p) => (p ? { ...p, entityType: e.target.value as any } : p))
+                                    }
+                                    disabled={Boolean(editor.parentTaskId)}
+                                  >
+                                    <option value="action">Action</option>
+                                    <option value="project">Project</option>
+                                  </select>
+                                </div>
 
-  <div style={{ minWidth: 240, flex: 1 }}>
-    <div className="label">Context</div>
-    <input
-      className="input"
-      value={editor.context}
-      onChange={(e) => setEditor((p) => (p ? { ...p, context: e.target.value } : p))}
-      placeholder='e.g. "@home"'
-    />
-  </div>
+                                <div style={{ minWidth: 200 }}>
+                                  <div className="label">State</div>
+                                  <select
+                                    className="input"
+                                    value={editor.state}
+                                    onChange={(e) => {
+                                      const next = e.target.value as any;
+                                      setEditor((p) => {
+                                        if (!p) return p;
+                                        const clearedDue = next === "inbox" ? "" : p.dueDate;
+                                        const clearedWaiting = next === "waiting" ? p.waitingFor : "";
+                                        return { ...p, state: next, dueDate: clearedDue, waitingFor: clearedWaiting };
+                                      });
+                                    }}
+                                  >
+                                    <option value="inbox">Inbox</option>
+                                    <option value="next">Next</option>
+                                    <option value="waiting">Waiting</option>
+                                    <option value="scheduled">Scheduled</option>
+                                    <option value="someday">Someday</option>
+                                    <option value="reference">Reference</option>
+                                    <option value="completed">Completed</option>
+                                  </select>
+                                </div>
 
-  {editor.state === "waiting" ? (
-    <div style={{ minWidth: 260, flex: 1 }}>
-      <div className="label">Waiting for…</div>
-      <input
-        className="input"
-        value={editor.waitingFor}
-        onChange={(e) => setEditor((p) => (p ? { ...p, waitingFor: e.target.value } : p))}
-      />
-    </div>
-  ) : null}
-</div>
+                                <div style={{ minWidth: 240, flex: 1 }}>
+                                  <div className="label">Context</div>
+                                  <input
+                                    className="input"
+                                    value={editor.context}
+                                    onChange={(e) => setEditor((p) => (p ? { ...p, context: e.target.value } : p))}
+                                    placeholder='e.g. "@home"'
+                                  />
+                                </div>
 
-<div className="row" style={{ gap: 10, flexWrap: "wrap" }}>
-  <div style={{ minWidth: 200 }}>
-    <div className="label">Due date</div>
+                                {editor.state === "waiting" ? (
+                                  <div style={{ minWidth: 260, flex: 1 }}>
+                                    <div className="label">Waiting for…</div>
+                                    <input
+                                      className="input"
+                                      value={editor.waitingFor}
+                                      onChange={(e) => setEditor((p) => (p ? { ...p, waitingFor: e.target.value } : p))}
+                                    />
+                                  </div>
+                                ) : null}
+                              </div>
+
+                              <div className="row" style={{ gap: 10, flexWrap: "wrap" }}>
+                                <div style={{ minWidth: 200 }}>
+                                  <div className="label">Due date</div>
                                   <input className="input" type="date" value={editor.dueDate} onChange={(e) => setEditor((p) => (p ? { ...p, dueDate: e.target.value } : p))} />
                                 </div>
                                 <div style={{ minWidth: 160 }}>
@@ -1080,34 +1342,34 @@ const toggleCompleteNode = useCallback(
                                     const ev = editor.effortValue.trim();
 
                                     await patchNode(c, {
-  title: newTitle,
-  description: newDesc || undefined,
+                                      title: newTitle,
+                                      description: newDesc || undefined,
 
-  // Phase 5 (GTD UX)
-  entityType: editor.parentTaskId ? "action" : editor.entityType,
-  state: editor.state,
-  context: editor.context.trim() ? editor.context.trim() : null,
-  waitingFor:
-    editor.state === "waiting"
-      ? editor.waitingFor.trim()
-        ? editor.waitingFor.trim()
-        : null
-      : null,
+                                      // Phase 5 (GTD UX)
+                                      entityType: editor.parentTaskId ? "action" : editor.entityType,
+                                      state: editor.state,
+                                      context: editor.context.trim() ? editor.context.trim() : null,
+                                      waitingFor:
+                                        editor.state === "waiting"
+                                          ? editor.waitingFor.trim()
+                                            ? editor.waitingFor.trim()
+                                            : null
+                                          : null,
 
-  // dueDate rules (backend authoritative; UI blocks obvious mistakes)
-  dueDate:
-    editor.state === "inbox"
-      ? null
-      : due
-        ? due
-        : editor.state === "scheduled"
-          ? null
-          : null,
+                                      // dueDate rules (backend authoritative; UI blocks obvious mistakes)
+                                      dueDate:
+                                        editor.state === "inbox"
+                                          ? null
+                                          : due
+                                            ? due
+                                            : editor.state === "scheduled"
+                                              ? null
+                                              : null,
 
-  priority: pr ? (Number(pr) as any) : null,
-  effort: ev ? { unit: editor.effortUnit, value: Number(ev) } : null,
-  attrs: attrsTrim ? attrs : null,
-});
+                                      priority: pr ? (Number(pr) as any) : null,
+                                      effort: ev ? { unit: editor.effortUnit, value: Number(ev) } : null,
+                                      attrs: attrsTrim ? attrs : null,
+                                    });
                                     setEditor(null);
                                   }}
                                 >
@@ -1119,13 +1381,40 @@ const toggleCompleteNode = useCallback(
                             <>
                               <div style={{ fontWeight: 800, textDecoration: c.status === "COMPLETED" ? "line-through" : "none" }}>{c.title}</div>
                               {c.description ? <div style={{ marginTop: 6, color: "#374151" }}>{c.description}</div> : null}
-                              <div className="help" style={{ marginTop: 8 }}>
-                                {stateLabel(deriveState(c))} · {deriveEntityType(c)}
-                                {c.dueDate ? ` · due ${fmtDue(c.dueDate)} (${dueTone(c.dueDate).label ?? ""})` : ""}
-                                {c.priority ? ` · p${c.priority}` : ""}
-                                {c.effort ? ` · effort ${c.effort.value} ${c.effort.unit}` : ""}
-                                {c.taskId.startsWith("temp-") ? " · syncing…" : null}
-                              </div>
+                              {(() => {
+                                const s = deriveState(c);
+                                const et = deriveEntityType(c);
+                                const due = c.dueDate ? fmtDue(c.dueDate) : null;
+                                const dueLabel = c.dueDate ? dueTone(c.dueDate).label : null;
+
+                                return (
+                                  <div className="meta-row" style={{ marginTop: 8 }}>
+                                    <div className="row" style={{ gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+                                      <StateBadge state={s} />
+                                      <span className="pill">{et === "project" ? "PROJECT" : "ACTION"}</span>
+
+                                      {s === "waiting" && (c.waitingFor ?? "").trim() ? (
+                                        <span className="meta-strong">Waiting for: {(c.waitingFor ?? "").trim()}</span>
+                                      ) : null}
+
+                                      {s === "scheduled" && due ? (
+                                        <span className="meta-strong">Scheduled: {due}</span>
+                                      ) : null}
+
+                                      {s !== "scheduled" && due ? (
+                                        <span className="meta-muted">
+                                          Due: {due}
+                                          {dueLabel ? ` (${dueLabel})` : ""}
+                                        </span>
+                                      ) : null}
+
+                                      {c.priority ? <span className="meta-muted">P{c.priority}</span> : null}
+                                      {c.effort ? <span className="meta-muted">Effort {c.effort.value} {c.effort.unit}</span> : null}
+                                      {c.taskId.startsWith("temp-") ? <span className="meta-muted">Syncing…</span> : null}
+                                    </div>
+                                  </div>
+                                );
+                              })()}
                             </>
                           )}
 
@@ -1138,20 +1427,139 @@ const toggleCompleteNode = useCallback(
                           {expandedHere ? renderChildren(c.taskId, depth + 1) : null}
                         </div>
 
-                        <div className="row" style={{ alignItems: "stretch" }}>
-                          <button className="btn btn-secondary" onClick={() => void toggleCompleteNode(c)} disabled={pending}>
+                        <div
+                          className="row"
+                          style={{
+                            alignItems: "stretch",
+                            flexWrap: "wrap",
+                            gap: 8,
+                            justifyContent: "flex-end",
+                          }}
+                        >
+                          {/* Quick GTD actions (always visible, compact) */}
+                          {c.status !== "COMPLETED" ? (
+                            <>
+                              {/* Inbox triage: same buttons as root to keep muscle memory consistent */}
+                              {view === "inbox" ? (
+                                <>
+                                  {isAction(c) ? (
+                                    <button
+                                      type="button"
+                                      className="btn btn-secondary btn-compact"
+                                      onClick={() => void quickTransition(c, "next")}
+                                      disabled={pending}
+                                      title="Move to Next"
+                                    >
+                                      Next
+                                    </button>
+                                  ) : null}
+
+                                  <button
+                                    type="button"
+                                    className="btn btn-secondary btn-compact"
+                                    onClick={() => void quickTransition(c, "waiting")}
+                                    disabled={pending}
+                                    title="Send to Waiting"
+                                  >
+                                    Waiting
+                                  </button>
+
+                                  <button
+                                    type="button"
+                                    className="btn btn-secondary btn-compact"
+                                    onClick={() => void quickTransition(c, "scheduled")}
+                                    disabled={pending}
+                                    title="Schedule (requires due date)"
+                                  >
+                                    Schedule
+                                  </button>
+
+                                  <button
+                                    type="button"
+                                    className="btn btn-secondary btn-compact"
+                                    onClick={() => void quickTransition(c, "someday")}
+                                    disabled={pending}
+                                    title="Move to Someday"
+                                  >
+                                    Someday
+                                  </button>
+
+                                  <button
+                                    type="button"
+                                    className="btn btn-secondary btn-compact"
+                                    onClick={() => void quickTransition(c, "reference")}
+                                    disabled={pending}
+                                    title="Move to Reference"
+                                  >
+                                    Reference
+                                  </button>
+                                </>
+                              ) : (
+                                <>
+                                  {isAction(c) && deriveState(c) !== "next" ? (
+                                    <button
+                                      type="button"
+                                      className="btn btn-secondary btn-compact"
+                                      onClick={() => void quickTransition(c, "next")}
+                                      disabled={pending}
+                                      title="Move to Next"
+                                    >
+                                      Next
+                                    </button>
+                                  ) : null}
+
+                                  {deriveState(c) !== "waiting" ? (
+                                    <button
+                                      type="button"
+                                      className="btn btn-secondary btn-compact"
+                                      onClick={() => void quickTransition(c, "waiting")}
+                                      disabled={pending}
+                                      title="Send to Waiting"
+                                    >
+                                      Waiting
+                                    </button>
+                                  ) : null}
+
+                                  {deriveState(c) !== "scheduled" ? (
+                                    <button
+                                      type="button"
+                                      className="btn btn-secondary btn-compact"
+                                      onClick={() => void quickTransition(c, "scheduled")}
+                                      disabled={pending}
+                                      title="Schedule (requires due date)"
+                                    >
+                                      Schedule
+                                    </button>
+                                  ) : null}
+                                </>
+                              )}
+                            </>
+                          ) : null}
+
+                          {/* Existing actions */}
+                          <button
+                            className={view === "next" && c.status !== "COMPLETED" ? "btn btn-primary" : "btn btn-secondary"}
+                            onClick={() => void toggleCompleteNode(c)}
+                            disabled={pending}
+                          >
                             {c.status === "COMPLETED" ? "Reopen" : "Complete"}
                           </button>
+
                           <button className="btn btn-secondary" onClick={() => startEdit(c)} disabled={pending}>
                             Edit
                           </button>
+
                           <button
                             className="btn btn-danger"
                             onClick={() => {
-                              if (!window.confirm("Delete this subtask?") ) return;
+                              if (!window.confirm("Delete this subtask?")) return;
                               void deleteNode(c);
                             }}
-                            title={(subtrees[c.taskId]?.loaded && (subtrees[c.taskId]?.items?.length ?? 0) > 0) ? "This subtask has subtasks. Delete subtasks first." : undefined}
+                            title={
+                              subtrees[c.taskId]?.loaded && (subtrees[c.taskId]?.items?.length ?? 0) > 0
+                                ? "This subtask has subtasks. Delete subtasks first."
+                                : undefined
+                            }
                             disabled={pending || (subtrees[c.taskId]?.loaded && (subtrees[c.taskId]?.items?.length ?? 0) > 0)}
                           >
                             Delete
@@ -1167,7 +1575,8 @@ const toggleCompleteNode = useCallback(
         </div>
       );
     },
-    [getSubtree,
+    [
+      getSubtree,
       newChildTitle,
       tokens,
       createChild,
@@ -1180,56 +1589,110 @@ const toggleCompleteNode = useCallback(
       toggleCompleteNode,
       deleteNode,
       startEdit,
-      loadMoreChildren]
+      loadMoreChildren,
+      quickTransition,
+      view,
+      subtrees,
+    ]
   );
 
+  // ===== Phase 6 PR4.2: focus filtering in Projects view =====
+  const visibleItems = useMemo(() => {
+    if (view === "projects") {
+      const projects = items.filter((t) => deriveEntityType(t) === "project");
+      if (focusId) return projects.filter((p) => p.taskId === focusId);
+      return projects;
+    }
+    return items.filter((t) => deriveState(t) === view);
+  }, [items, view, focusId]);
+  // ===========================================================
 
-const visibleItems = useMemo(() => {
-  if (view === "projects") return items.filter((t) => deriveEntityType(t) === "project");
-  return items.filter((t) => deriveState(t) === view);
-}, [items, view]);
-
-const empty = !initialLoading && visibleItems.length === 0;
-
+  const empty = !initialLoading && visibleItems.length === 0;
 
   return (
     <div className="card">
-      <div className="row space-between" style={{ marginBottom: 12 }}>
-        <div>
-          <div style={{ fontSize: 18, fontWeight: 800 }}>{view === "projects" ? "Projects" : stateLabel(view)}</div>
-          <div style={{ fontSize: 13, color: "#6b7280" }}>Quick, pragmatic, and safe-by-default.</div>
+      <div
+        className="row space-between sticky-bar"
+        style={{ marginBottom: 12, minWidth: 0 }}
+      >
+        <div style={{ minWidth: 0 }}>
+          <div style={{ fontSize: 18, fontWeight: 800 }}>
+            {view === "projects" ? (focusId && focusedProject ? `Project: ${focusedProject.title}` : "Projects") : stateLabel(view)}
+          </div>
+        {view === "projects" && focusId ? (
+          <div style={{ marginTop: 8 }}>
+            <button type="button" className="btn btn-secondary btn-compact" onClick={clearFocus}>
+              Back to projects
+            </button>
+          </div>
+        ) : null}
+          <div style={{ fontSize: 13, color: "#6b7280" }}>
+            Quick, pragmatic, and safe-by-default.
+          </div>
+
+          {/* ===== Phase 6 PR4.2: Focus indicator + back control ===== */}
+          {view === "projects" && focusId ? (
+            <div className="row" style={{ gap: 8, marginTop: 8, flexWrap: "wrap", alignItems: "center" }}>
+              <span className="pill">
+                Focused: {focused?.title ?? focusId}
+              </span>
+              <button
+                type="button"
+                className="btn btn-secondary btn-compact"
+                onClick={clearFocus}
+              >
+                Back to all projects
+              </button>
+            </div>
+          ) : null}
+          {/* ========================================================= */}
         </div>
-        
-<div className="row" style={{ gap: 10, alignItems: "center" }}>
-  <div className="row" style={{ gap: 6, alignItems: "center" }}>
-    <span className="help">View:</span>
-    <select
-      className="input"
-      style={{ height: 34, padding: "6px 10px" }}
-      value={view}
-      onChange={(e) => {
-        const v = e.target.value;
-        setSearchParams((prev) => {
-          const next = new URLSearchParams(prev);
-          next.set("view", v);
-          return next;
-        });
-      }}
-    >
-      <option value="inbox">Inbox</option>
-      <option value="next">Next</option>
-      <option value="waiting">Waiting</option>
-      <option value="scheduled">Scheduled</option>
-      <option value="someday">Someday</option>
-      <option value="reference">Reference</option>
-      <option value="completed">Completed</option>
-      <option value="projects">Projects</option>
-    </select>
-  </div>
-  <button className="btn btn-secondary" onClick={reload} disabled={initialLoading || loadingMore || creating}>
-    Refresh
-  </button>
-</div>
+
+        <div
+          className="row"
+          style={{
+            gap: 10,
+            alignItems: "center",
+            minWidth: 0,
+            flexShrink: 1,
+          }}
+        >
+          <div style={{ minWidth: 0, flex: 1 }}>
+            <div className="tabs" role="tablist" aria-label="GTD views">
+              {VIEW_DEFS.map((d) => (
+                <button
+                  key={d.key}
+                  type="button"
+                  role="tab"
+                  aria-selected={view === d.key}
+                  className={`tab ${view === d.key ? "tab-active" : ""}`}
+                  onClick={() => {
+                    setSearchParams((prev) => {
+                      const next = new URLSearchParams(prev);
+                      next.set("view", d.key);
+                      // if switching away from Projects, drop focus to avoid confusing deep links
+                      if (d.key !== "projects") next.delete("focus");
+                      return next;
+                    });
+                  }}
+                >
+                  <span className="tab-label">{d.label}</span>
+                  <span className="tab-count">
+                    {viewCounts[d.key] ?? 0}
+                  </span>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <button
+            className="btn btn-secondary"
+            onClick={reload}
+            disabled={initialLoading || loadingMore || creating}
+          >
+            Refresh
+          </button>
+        </div>
       </div>
 
       {error ? (
@@ -1310,165 +1773,216 @@ const empty = !initialLoading && visibleItems.length === 0;
           }
         />
       ) : null}
-
+      {!(view === "projects" && focusId) ? (
       <form onSubmit={onSubmit} className="card" style={{ marginTop: 12, padding: 14 }}>
-  <div style={{ fontWeight: 700, marginBottom: 10 }}>Create task</div>
+        <div style={{ fontWeight: 700, marginBottom: 10 }}>Create task</div>
 
-  <div style={{ display: "grid", gap: 10 }}>
-    <div>
-      <div className="label">Title</div>
-      <input
-        className="input"
-        value={title}
-        onChange={(e) => setTitle(e.target.value)}
-        placeholder="e.g. Call the accountant"
-        ref={titleRef}
-        aria-invalid={Boolean(titleError) || undefined}
-      />
-      {titleError ? <div className="help" style={{ color: "#991b1b" }}>{titleError}</div> : null}
-    </div>
+        <div style={{ display: "grid", gap: 10 }}>
+          <div>
+            <div className="label">Title</div>
+            <input
+              className="input"
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              placeholder="e.g. Call the accountant"
+              ref={titleRef}
+              aria-invalid={Boolean(titleError) || undefined}
+            />
+            {titleError ? <div className="help" style={{ color: "#991b1b" }}>{titleError}</div> : null}
+          </div>
 
-    <div>
-      <div className="label">Description (optional)</div>
-      <textarea
-        className="input"
-        value={description}
-        onChange={(e) => setDescription(e.target.value)}
-        placeholder="Add context, links, etc."
-        rows={3}
-        aria-invalid={Boolean(descriptionError) || undefined}
-      />
-      {descriptionError ? (
-        <div className="help" style={{ color: "#991b1b" }}>{descriptionError}</div>
-      ) : (
-        <div className="help">{descTrim.length}/2000</div>
-      )}
-    </div>
+          <div>
+            <div className="label">Description (optional)</div>
+            <textarea
+              className="input"
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              placeholder="Add context, links, etc."
+              rows={3}
+              aria-invalid={Boolean(descriptionError) || undefined}
+            />
+            {descriptionError ? (
+              <div className="help" style={{ color: "#991b1b" }}>{descriptionError}</div>
+            ) : (
+              <div className="help">{descTrim.length}/2000</div>
+            )}
+          </div>
 
-    <div className="row" style={{ gap: 10, flexWrap: "wrap" }}>
-      <div style={{ minWidth: 180 }}>
-        <div className="label">Type</div>
-        <select className="input" value={createEntityType} onChange={(e) => setCreateEntityType(e.target.value as any)}>
-          <option value="action">Action</option>
-          <option value="project">Project</option>
-        </select>
-      </div>
+          <div className="row" style={{ gap: 10, flexWrap: "wrap" }}>
+            <div style={{ minWidth: 180 }}>
+              <div className="label">Type</div>
+              <select className="input" value={createEntityType} onChange={(e) => setCreateEntityType(e.target.value as any)}>
+                <option value="action">Action</option>
+                <option value="project">Project</option>
+              </select>
+            </div>
 
-      <div style={{ minWidth: 200 }}>
-        <div className="label">State</div>
-        <select
-          className="input"
-          value={createState}
-          onChange={(e) => {
-            const next = e.target.value as any;
-            setCreateState(next);
-            if (next === "inbox") setDueDate("");
-            if (next !== "waiting") setCreateWaitingFor("");
-          }}
-        >
-          <option value="inbox">Inbox</option>
-          <option value="next">Next</option>
-          <option value="waiting">Waiting</option>
-          <option value="scheduled">Scheduled</option>
-          <option value="someday">Someday</option>
-          <option value="reference">Reference</option>
-        </select>
-      </div>
+            <div style={{ minWidth: 200 }}>
+              <div className="label">State</div>
+              <select
+                className="input"
+                value={createState}
+                onChange={(e) => {
+                  const next = e.target.value as any;
+                  setCreateState(next);
+                  if (next === "inbox") setDueDate("");
+                  if (next !== "waiting") setCreateWaitingFor("");
+                }}
+              >
+                <option value="inbox">Inbox</option>
+                <option value="next">Next</option>
+                <option value="waiting">Waiting</option>
+                <option value="scheduled">Scheduled</option>
+                <option value="someday">Someday</option>
+                <option value="reference">Reference</option>
+              </select>
+            </div>
 
-      <div style={{ minWidth: 240, flex: 1 }}>
-        <div className="label">Context (optional)</div>
-        <input
-          className="input"
-          value={createContext}
-          onChange={(e) => setCreateContext(e.target.value)}
-          placeholder='e.g. "@home"'
-        />
-      </div>
+            <div style={{ minWidth: 240, flex: 1 }}>
+              <div className="label">Context (optional)</div>
+              <input
+                className="input"
+                value={createContext}
+                onChange={(e) => setCreateContext(e.target.value)}
+                placeholder='e.g. "@home"'
+              />
+            </div>
 
-      {createState === "waiting" ? (
-        <div style={{ minWidth: 260, flex: 1 }}>
-          <div className="label">Waiting for…</div>
-          <input
-            className="input"
-            value={createWaitingFor}
-            onChange={(e) => setCreateWaitingFor(e.target.value)}
-            placeholder="e.g. Reply from accountant"
-          />
+            {createState === "waiting" ? (
+              <div style={{ minWidth: 260, flex: 1 }}>
+                <div className="label">Waiting for…</div>
+                <input
+                  className="input"
+                  value={createWaitingFor}
+                  onChange={(e) => setCreateWaitingFor(e.target.value)}
+                  placeholder="e.g. Reply from accountant"
+                />
+              </div>
+            ) : null}
+          </div>
+
+          <div className="row" style={{ gap: 10, flexWrap: "wrap" }}>
+            <div style={{ minWidth: 200 }}>
+              <div className="label">Due date</div>
+              <input
+                className="input"
+                type="date"
+                value={dueDate}
+                onChange={(e) => setDueDate(e.target.value)}
+                disabled={createState === "inbox"}
+              />
+              {createState === "scheduled" ? <div className="help">Required for Scheduled</div> : null}
+            </div>
+
+            <div style={{ minWidth: 160 }}>
+              <div className="label">Priority</div>
+              <select className="input" value={priority} onChange={(e) => setPriority(e.target.value)}>
+                <option value="">—</option>
+                <option value="1">1</option>
+                <option value="2">2</option>
+                <option value="3">3</option>
+                <option value="4">4</option>
+                <option value="5">5</option>
+              </select>
+            </div>
+
+            <div style={{ minWidth: 240 }}>
+              <div className="label">Effort</div>
+              <div className="row" style={{ gap: 8 }}>
+                <input
+                  className="input"
+                  style={{ width: 120 }}
+                  inputMode="decimal"
+                  value={effortValue}
+                  onChange={(e) => setEffortValue(e.target.value)}
+                  placeholder="e.g. 1.5"
+                />
+                <select className="input" value={effortUnit} onChange={(e) => setEffortUnit(e.target.value as any)}>
+                  <option value="hours">hours</option>
+                  <option value="days">days</option>
+                </select>
+              </div>
+            </div>
+          </div>
+
+          <div>
+            <div className="label">Attributes (JSON)</div>
+            <textarea
+              className="input"
+              rows={3}
+              value={attrsJson}
+              onChange={(e) => setAttrsJson(e.target.value)}
+              spellCheck={false}
+              placeholder='e.g. {"area":"personal"}'
+              aria-invalid={Boolean(attrsError) || undefined}
+            />
+            {attrsError ? <div className="help" style={{ color: "#991b1b" }}>{attrsError}</div> : <div className="help">Optional</div>}
+          </div>
+
+          {gtdCreateError ? <div className="help" style={{ color: "#991b1b" }}>{gtdCreateError}</div> : null}
+
+          <div className="row" style={{ justifyContent: "flex-end" }}>
+            <button className="btn btn-primary" type="submit" disabled={!canCreate}>
+              {creating ? "Creating…" : "Add task"}
+            </button>
+          </div>
         </div>
+      </form>
       ) : null}
-    </div>
-
-    <div className="row" style={{ gap: 10, flexWrap: "wrap" }}>
-      <div style={{ minWidth: 200 }}>
-        <div className="label">Due date</div>
-        <input
-          className="input"
-          type="date"
-          value={dueDate}
-          onChange={(e) => setDueDate(e.target.value)}
-          disabled={createState === "inbox"}
-        />
-        {createState === "scheduled" ? <div className="help">Required for Scheduled</div> : null}
-      </div>
-
-      <div style={{ minWidth: 160 }}>
-        <div className="label">Priority</div>
-        <select className="input" value={priority} onChange={(e) => setPriority(e.target.value)}>
-          <option value="">—</option>
-          <option value="1">1</option>
-          <option value="2">2</option>
-          <option value="3">3</option>
-          <option value="4">4</option>
-          <option value="5">5</option>
-        </select>
-      </div>
-
-      <div style={{ minWidth: 240 }}>
-        <div className="label">Effort</div>
-        <div className="row" style={{ gap: 8 }}>
-          <input
-            className="input"
-            style={{ width: 120 }}
-            inputMode="decimal"
-            value={effortValue}
-            onChange={(e) => setEffortValue(e.target.value)}
-            placeholder="e.g. 1.5"
-          />
-          <select className="input" value={effortUnit} onChange={(e) => setEffortUnit(e.target.value as any)}>
-            <option value="hours">hours</option>
-            <option value="days">days</option>
-          </select>
-        </div>
-      </div>
-    </div>
-
-    <div>
-      <div className="label">Attributes (JSON)</div>
-      <textarea
-        className="input"
-        rows={3}
-        value={attrsJson}
-        onChange={(e) => setAttrsJson(e.target.value)}
-        spellCheck={false}
-        placeholder='e.g. {"area":"personal"}'
-        aria-invalid={Boolean(attrsError) || undefined}
-      />
-      {attrsError ? <div className="help" style={{ color: "#991b1b" }}>{attrsError}</div> : <div className="help">Optional</div>}
-    </div>
-
-    {gtdCreateError ? <div className="help" style={{ color: "#991b1b" }}>{gtdCreateError}</div> : null}
-
-    <div className="row" style={{ justifyContent: "flex-end" }}>
-      <button className="btn btn-primary" type="submit" disabled={!canCreate}>
-        {creating ? "Creating…" : "Add task"}
-      </button>
-    </div>
-  </div>
-</form>
 
       <div style={{ marginTop: 16 }}>
         {initialLoading ? (
           <TaskListSkeleton count={4} />
+        ) : view === "projects" && focusId ? (
+          <div style={{ display: "grid", gap: 10 }}>
+            <div className="card" style={{ padding: 14 }}>
+              <div className="row space-between" style={{ alignItems: "center" }}>
+                <div style={{ fontWeight: 900 }}>Project workspace</div>
+                <div className="help">{focusCounts.all} item{focusCounts.all === 1 ? "" : "s"} loaded</div>
+              </div>
+
+              <div style={{ marginTop: 10 }}>
+                <div className="tabs" role="tablist" aria-label="Project view">
+                  {FOCUS_VIEW_DEFS.map((d) => (
+                    <button
+                      key={d.key}
+                      type="button"
+                      role="tab"
+                      aria-selected={focusView === d.key}
+                      className={`tab ${focusView === d.key ? "tab-active" : ""}`}
+                      onClick={() => {
+                        setSearchParams((prev) => {
+                          const next = new URLSearchParams(prev);
+                          next.set("view", "projects");
+                          next.set("focus", focusId!);
+                          next.set("pview", d.key);
+                          return next;
+                        });
+                      }}
+                    >
+                      <span className="tab-label">{d.label}</span>
+                      <span className="tab-count">{focusCounts[d.key] ?? 0}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="row" style={{ justifyContent: "flex-end", marginTop: 10 }}>
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  onClick={() => {
+                    if (focusId) void loadChildren(focusId, true);
+                  }}
+                  disabled={!tokens}
+                >
+                  Refresh project
+                </button>
+              </div>
+            </div>
+
+            {focusId ? renderChildren(focusId, 1, { filterState: focusView }) : null}
+          </div>
         ) : empty ? (
           <div className="card" style={{ padding: 18, textAlign: "left" }}>
             <div style={{ fontWeight: 800, marginBottom: 6 }}>No tasks yet</div>
@@ -1495,7 +2009,13 @@ const empty = !initialLoading && visibleItems.length === 0;
               const childrenState = getSubtree(t.taskId);
 
               return (
-                <div key={t.taskId} className="card" style={{ padding: 14, borderLeft: dueTone(t.dueDate).border ? `4px solid ${dueTone(t.dueDate).border}` : undefined }}>
+                <div
+                  key={t.taskId}
+                  className="card task-card"
+                  data-state={deriveState(t)}
+                  data-entity={deriveEntityType(t)}
+                  style={{ padding: 14, borderLeft: dueTone(t.dueDate).border ? `4px solid ${dueTone(t.dueDate).border}` : undefined }}
+                >
                   <div className="row space-between" style={{ alignItems: "flex-start" }}>
                     <div style={{ flex: 1 }}>
                       {isEditing ? (
@@ -1511,78 +2031,88 @@ const empty = !initialLoading && visibleItems.length === 0;
                             value={editor.description}
                             onChange={(e) => setEditor((p) => (p ? { ...p, description: e.target.value } : p))}
                           />
-                          
-<div className="row" style={{ gap: 10, flexWrap: "wrap" }}>
-  <div style={{ minWidth: 180 }}>
-    <div className="label">Type</div>
-    <select
-      className="input"
-      value={editor.entityType}
-      onChange={(e) =>
-        setEditor((p) => (p ? { ...p, entityType: e.target.value as any } : p))
-      }
-      disabled={Boolean(editor.parentTaskId)}
-    >
-      <option value="action">Action</option>
-      <option value="project">Project</option>
-    </select>
-  </div>
 
-  <div style={{ minWidth: 200 }}>
-    <div className="label">State</div>
-    <select
-      className="input"
-      value={editor.state}
-      onChange={(e) => {
-        const next = e.target.value as any;
-        setEditor((p) => {
-          if (!p) return p;
-          const clearedDue = next === "inbox" ? "" : p.dueDate;
-          const clearedWaiting = next === "waiting" ? p.waitingFor : "";
-          return { ...p, state: next, dueDate: clearedDue, waitingFor: clearedWaiting };
-        });
-      }}
-    >
-      <option value="inbox">Inbox</option>
-      <option value="next">Next</option>
-      <option value="waiting">Waiting</option>
-      <option value="scheduled">Scheduled</option>
-      <option value="someday">Someday</option>
-      <option value="reference">Reference</option>
-      <option value="completed">Completed</option>
-    </select>
-  </div>
-
-  <div style={{ minWidth: 240, flex: 1 }}>
-    <div className="label">Context</div>
-    <input
-      className="input"
-      value={editor.context}
-      onChange={(e) => setEditor((p) => (p ? { ...p, context: e.target.value } : p))}
-      placeholder='e.g. "@home"'
-    />
-  </div>
-
-  {editor.state === "waiting" ? (
-    <div style={{ minWidth: 260, flex: 1 }}>
-      <div className="label">Waiting for…</div>
-      <input
-        className="input"
-        value={editor.waitingFor}
-        onChange={(e) => setEditor((p) => (p ? { ...p, waitingFor: e.target.value } : p))}
-      />
-    </div>
-  ) : null}
-</div>
-
-<div className="row" style={{ gap: 10, flexWrap: "wrap" }}>
-  <div style={{ minWidth: 200 }}>
-    <div className="label">Due date</div>
-                              <input className="input" type="date" value={editor.dueDate} onChange={(e) => setEditor((p) => (p ? { ...p, dueDate: e.target.value } : p))} />
+                          <div className="row" style={{ gap: 10, flexWrap: "wrap" }}>
+                            <div style={{ minWidth: 180 }}>
+                              <div className="label">Type</div>
+                              <select
+                                className="input"
+                                value={editor.entityType}
+                                onChange={(e) =>
+                                  setEditor((p) => (p ? { ...p, entityType: e.target.value as any } : p))
+                                }
+                                disabled={Boolean(editor.parentTaskId)}
+                              >
+                                <option value="action">Action</option>
+                                <option value="project">Project</option>
+                              </select>
                             </div>
+
+                            <div style={{ minWidth: 200 }}>
+                              <div className="label">State</div>
+                              <select
+                                className="input"
+                                value={editor.state}
+                                onChange={(e) => {
+                                  const next = e.target.value as any;
+                                  setEditor((p) => {
+                                    if (!p) return p;
+                                    const clearedDue = next === "inbox" ? "" : p.dueDate;
+                                    const clearedWaiting = next === "waiting" ? p.waitingFor : "";
+                                    return { ...p, state: next, dueDate: clearedDue, waitingFor: clearedWaiting };
+                                  });
+                                }}
+                              >
+                                <option value="inbox">Inbox</option>
+                                <option value="next">Next</option>
+                                <option value="waiting">Waiting</option>
+                                <option value="scheduled">Scheduled</option>
+                                <option value="someday">Someday</option>
+                                <option value="reference">Reference</option>
+                                <option value="completed">Completed</option>
+                              </select>
+                            </div>
+
+                            <div style={{ minWidth: 240, flex: 1 }}>
+                              <div className="label">Context</div>
+                              <input
+                                className="input"
+                                value={editor.context}
+                                onChange={(e) => setEditor((p) => (p ? { ...p, context: e.target.value } : p))}
+                                placeholder='e.g. "@home"'
+                              />
+                            </div>
+
+                            {editor.state === "waiting" ? (
+                              <div style={{ minWidth: 260, flex: 1 }}>
+                                <div className="label">Waiting for…</div>
+                                <input
+                                  className="input"
+                                  value={editor.waitingFor}
+                                  onChange={(e) => setEditor((p) => (p ? { ...p, waitingFor: e.target.value } : p))}
+                                />
+                              </div>
+                            ) : null}
+                          </div>
+
+                          <div className="row" style={{ gap: 10, flexWrap: "wrap" }}>
+                            <div style={{ minWidth: 200 }}>
+                              <div className="label">Due date</div>
+                              <input
+                                className="input"
+                                type="date"
+                                value={editor.dueDate}
+                                onChange={(e) => setEditor((p) => (p ? { ...p, dueDate: e.target.value } : p))}
+                              />
+                            </div>
+
                             <div style={{ minWidth: 160 }}>
                               <div className="label">Priority</div>
-                              <select className="input" value={editor.priority} onChange={(e) => setEditor((p) => (p ? { ...p, priority: e.target.value } : p))}>
+                              <select
+                                className="input"
+                                value={editor.priority}
+                                onChange={(e) => setEditor((p) => (p ? { ...p, priority: e.target.value } : p))}
+                              >
                                 <option value="">—</option>
                                 <option value="1">1</option>
                                 <option value="2">2</option>
@@ -1591,21 +2121,39 @@ const empty = !initialLoading && visibleItems.length === 0;
                                 <option value="5">5</option>
                               </select>
                             </div>
+
                             <div style={{ minWidth: 240 }}>
                               <div className="label">Effort</div>
                               <div className="row" style={{ gap: 8 }}>
-                                <input className="input" style={{ width: 120 }} inputMode="decimal" value={editor.effortValue} onChange={(e) => setEditor((p) => (p ? { ...p, effortValue: e.target.value } : p))} />
-                                <select className="input" value={editor.effortUnit} onChange={(e) => setEditor((p) => (p ? { ...p, effortUnit: e.target.value as any } : p))}>
+                                <input
+                                  className="input"
+                                  style={{ width: 120 }}
+                                  inputMode="decimal"
+                                  value={editor.effortValue}
+                                  onChange={(e) => setEditor((p) => (p ? { ...p, effortValue: e.target.value } : p))}
+                                />
+                                <select
+                                  className="input"
+                                  value={editor.effortUnit}
+                                  onChange={(e) => setEditor((p) => (p ? { ...p, effortUnit: e.target.value as any } : p))}
+                                >
                                   <option value="hours">hours</option>
                                   <option value="days">days</option>
                                 </select>
                               </div>
                             </div>
                           </div>
+
                           <div>
                             <div className="label">Attributes (JSON)</div>
-                            <textarea className="input" rows={4} value={editor.attrsJson} onChange={(e) => setEditor((p) => (p ? { ...p, attrsJson: e.target.value } : p))} />
+                            <textarea
+                              className="input"
+                              rows={4}
+                              value={editor.attrsJson}
+                              onChange={(e) => setEditor((p) => (p ? { ...p, attrsJson: e.target.value } : p))}
+                            />
                           </div>
+
                           <div className="row" style={{ justifyContent: "flex-end" }}>
                             <button
                               type="button"
@@ -1689,14 +2237,41 @@ const empty = !initialLoading && visibleItems.length === 0;
                             {t.title}
                           </div>
                           {t.description ? <div style={{ marginTop: 6, color: "#374151" }}>{t.description}</div> : null}
-                          <div className="help" style={{ marginTop: 8 }}>
-                            {t.status}
-                            {t.dueDate ? ` · due ${fmtDue(t.dueDate)} (${dueTone(t.dueDate).label ?? ""})` : ""}
-                            {t.priority ? ` · p${t.priority}` : ""}
-                            {t.effort ? ` · effort ${t.effort.value} ${t.effort.unit}` : ""}
-                            · created {formatTime(t.createdAt)} · updated {formatTime(t.updatedAt)}
-                            {t.taskId.startsWith("temp-") ? " · syncing…" : null}
-                          </div>
+                          {(() => {
+                            const s = deriveState(t);
+                            const et = deriveEntityType(t);
+                            const due = t.dueDate ? fmtDue(t.dueDate) : null;
+                            const dueLabel = t.dueDate ? dueTone(t.dueDate).label : null;
+
+                            return (
+                              <div className="meta-row" style={{ marginTop: 8 }}>
+                                <div className="row" style={{ gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+                                  <StateBadge state={s} />
+                                  <span className="pill">{et === "project" ? "PROJECT" : "ACTION"}</span>
+
+                                  {s === "waiting" && (t.waitingFor ?? "").trim() ? (
+                                    <span className="meta-strong">Waiting for: {(t.waitingFor ?? "").trim()}</span>
+                                  ) : null}
+
+                                  {s === "scheduled" && due ? (
+                                    <span className="meta-strong">Scheduled: {due}</span>
+                                  ) : null}
+
+                                  {s !== "scheduled" && due ? (
+                                    <span className="meta-muted">
+                                      Due: {due}
+                                      {dueLabel ? ` (${dueLabel})` : ""}
+                                    </span>
+                                  ) : null}
+
+                                  {t.priority ? <span className="meta-muted">P{t.priority}</span> : null}
+                                  {t.effort ? <span className="meta-muted">Effort {t.effort.value} {t.effort.unit}</span> : null}
+                                  <span className="meta-muted">Updated {formatTime(t.updatedAt)}</span>
+                                  {t.taskId.startsWith("temp-") ? <span className="meta-muted">Syncing…</span> : null}
+                                </div>
+                              </div>
+                            );
+                          })()}
 
                           <div className="row" style={{ gap: 8, marginTop: 10, flexWrap: "wrap" }}>
                             <button
@@ -1717,90 +2292,226 @@ const empty = !initialLoading && visibleItems.length === 0;
                       )}
                     </div>
 
-                    <div className="row" style={{ alignItems: "stretch" }}>
-                      <button className="btn btn-secondary" onClick={() => void toggleCompleteNode(t)} disabled={pending}>
-                        {t.status === "COMPLETED" ? "Reopen" : "Complete"}
-                      </button>
+                    <div className="row" style={{ alignItems: "stretch", flexWrap: "wrap", gap: 8, justifyContent: "flex-end" }}>
+                      {/* Quick GTD actions (always visible, compact) */}
+                      {t.status !== "COMPLETED" ? (
+                        <>
+                          {/* Inbox triage surface: show the common “process” actions */}
+                          {view === "inbox" ? (
+                            <>
+                              {isAction(t) ? (
+                                <button
+                                  type="button"
+                                  className="btn btn-secondary btn-compact"
+                                  onClick={() => void quickTransition(t, "next")}
+                                  disabled={pending}
+                                  title="Move to Next"
+                                >
+                                  Next
+                                </button>
+                              ) : null}
+
+                              <button
+                                type="button"
+                                className="btn btn-secondary btn-compact"
+                                onClick={() => void quickTransition(t, "waiting")}
+                                disabled={pending}
+                                title="Send to Waiting"
+                              >
+                                Waiting
+                              </button>
+
+                              <button
+                                type="button"
+                                className="btn btn-secondary btn-compact"
+                                onClick={() => void quickTransition(t, "scheduled")}
+                                disabled={pending}
+                                title="Schedule (requires due date)"
+                              >
+                                Schedule
+                              </button>
+
+                              <button
+                                type="button"
+                                className="btn btn-secondary btn-compact"
+                                onClick={() => void quickTransition(t, "someday")}
+                                disabled={pending}
+                                title="Move to Someday"
+                              >
+                                Someday
+                              </button>
+
+                              <button
+                                type="button"
+                                className="btn btn-secondary btn-compact"
+                                onClick={() => void quickTransition(t, "reference")}
+                                disabled={pending}
+                                title="Move to Reference"
+                              >
+                                Reference
+                              </button>
+                            </>
+                          ) : (
+                            /* Non-inbox views: keep it minimal */
+                            <>
+                              {isAction(t) && deriveState(t) !== "next" ? (
+                                <button
+                                  type="button"
+                                  className="btn btn-secondary btn-compact"
+                                  onClick={() => void quickTransition(t, "next")}
+                                  disabled={pending}
+                                  title="Move to Next"
+                                >
+                                  Next
+                                </button>
+                              ) : null}
+
+                              {deriveState(t) !== "waiting" ? (
+                                <button
+                                  type="button"
+                                  className="btn btn-secondary btn-compact"
+                                  onClick={() => void quickTransition(t, "waiting")}
+                                  disabled={pending}
+                                  title="Send to Waiting"
+                                >
+                                  Waiting
+                                </button>
+                              ) : null}
+
+                              {deriveState(t) !== "scheduled" ? (
+                                <button
+                                  type="button"
+                                  className="btn btn-secondary btn-compact"
+                                  onClick={() => void quickTransition(t, "scheduled")}
+                                  disabled={pending}
+                                  title="Schedule (requires due date)"
+                                >
+                                  Schedule
+                                </button>
+                              ) : null}
+                            </>
+                          )}
+                        </>
+                      ) : null}
+
+                      {/* ===== Phase 6 PR4.2: Focus button (Projects view only) ===== */}
+                      {view === "projects" && isProject(t) ? (
+                        focusId === t.taskId ? (
+                          <button
+                            type="button"
+                            className="btn btn-secondary btn-compact"
+                            onClick={clearFocus}
+                            disabled={pending}
+                            title="Back to all projects"
+                          >
+                            Unfocus
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            className="btn btn-secondary btn-compact"
+                            onClick={() => setFocus(t.taskId)}
+                            disabled={pending}
+                            title="Focus this project"
+                          >
+                            Focus
+                          </button>
+                        )
+                      ) : null}
+                      {/* =========================================================== */}
+
+                      {/* Existing primary actions */}
+                      <button
+                      className={view === "next" && t.status !== "COMPLETED" ? "btn btn-primary" : "btn btn-secondary"}
+                      onClick={() => void toggleCompleteNode(t)}
+                      disabled={pending}
+                    >
+                      {t.status === "COMPLETED" ? "Reopen" : "Complete"}
+                    </button>
                       <button className="btn btn-secondary" onClick={() => startEdit(t)} disabled={pending}>
                         Edit
                       </button>
                       <button
                         className="btn btn-danger"
                         onClick={() => {
-                          if (!window.confirm("Delete this task?") ) return;
+                          if (!window.confirm("Delete this task?")) return;
                           void deleteNode(t);
                         }}
-                        title={(subtrees[t.taskId]?.loaded && (subtrees[t.taskId]?.items?.length ?? 0) > 0) ? "This task has subtasks. Delete subtasks first." : undefined}
+                        title={
+                          subtrees[t.taskId]?.loaded && (subtrees[t.taskId]?.items?.length ?? 0) > 0
+                            ? "This task has subtasks. Delete subtasks first."
+                            : undefined
+                        }
                         disabled={pending || (subtrees[t.taskId]?.loaded && (subtrees[t.taskId]?.items?.length ?? 0) > 0)}
                       >
                         Delete
                       </button>
                     </div>
 
-{shareFor === t.taskId ? (
-  <div style={{ marginTop: 10, paddingTop: 10, borderTop: "1px dashed #e5e7eb" }}>
-    <div className="row space-between" style={{ alignItems: "center" }}>
-      <div style={{ fontWeight: 900 }}>Sharing</div>
-      <button className="btn btn-secondary" onClick={closeShares}>
-        Close
-      </button>
-    </div>
+                    {shareFor === t.taskId ? (
+                      <div style={{ marginTop: 10, paddingTop: 10, borderTop: "1px dashed #e5e7eb" }}>
+                        <div className="row space-between" style={{ alignItems: "center" }}>
+                          <div style={{ fontWeight: 900 }}>Sharing</div>
+                          <button className="btn btn-secondary" onClick={closeShares}>
+                            Close
+                          </button>
+                        </div>
 
-    {sharesError ? (
-      <div style={{ marginTop: 10 }}>
-        <InlineAlert
-          tone="error"
-          title="Share error"
-          message={sharesError.requestId ? `${sharesError.message} (requestId: ${sharesError.requestId})` : sharesError.message}
-          actions={
-            <button className="btn btn-secondary" onClick={() => setSharesError(null)}>
-              Dismiss
-            </button>
-          }
-        />
-      </div>
-    ) : null}
+                        {sharesError ? (
+                          <div style={{ marginTop: 10 }}>
+                            <InlineAlert
+                              tone="error"
+                              title="Share error"
+                              message={sharesError.requestId ? `${sharesError.message} (requestId: ${sharesError.requestId})` : sharesError.message}
+                              actions={
+                                <button className="btn btn-secondary" onClick={() => setSharesError(null)}>
+                                  Dismiss
+                                </button>
+                              }
+                            />
+                          </div>
+                        ) : null}
 
-    <div className="row" style={{ gap: 8, marginTop: 10, alignItems: "center" }}>
-      <input
-        className="input"
-        placeholder="Grantee sub (Cognito user sub)"
-        value={shareGranteeSub}
-        onChange={(e) => setShareGranteeSub(e.target.value)}
-        style={{ flex: 1, minWidth: 240 }}
-      />
-      <select className="input" value={shareMode} onChange={(e) => setShareMode(e.target.value as any)} style={{ width: 120 }}>
-        <option value="VIEW">VIEW</option>
-        <option value="EDIT">EDIT</option>
-      </select>
-      <button className="btn" onClick={() => void submitShare(t.taskId)} disabled={sharesLoading || !shareGranteeSub.trim()}>
-        {sharesLoading ? "Saving…" : "Grant"}
-      </button>
-    </div>
+                        <div className="row" style={{ gap: 8, marginTop: 10, alignItems: "center" }}>
+                          <input
+                            className="input"
+                            placeholder="Grantee sub (Cognito user sub)"
+                            value={shareGranteeSub}
+                            onChange={(e) => setShareGranteeSub(e.target.value)}
+                            style={{ flex: 1, minWidth: 240 }}
+                          />
+                          <select className="input" value={shareMode} onChange={(e) => setShareMode(e.target.value as any)} style={{ width: 120 }}>
+                            <option value="VIEW">VIEW</option>
+                            <option value="EDIT">EDIT</option>
+                          </select>
+                          <button className="btn" onClick={() => void submitShare(t.taskId)} disabled={sharesLoading || !shareGranteeSub.trim()}>
+                            {sharesLoading ? "Saving…" : "Grant"}
+                          </button>
+                        </div>
 
-    <div style={{ marginTop: 10 }}>
-      {sharesLoading && shares.length === 0 ? (
-        <div className="help">Loading…</div>
-      ) : shares.length === 0 ? (
-        <div className="help">Not shared with anyone.</div>
-      ) : (
-        <div style={{ display: "grid", gap: 8 }}>
-          {shares.map((g) => (
-            <div key={g.granteeSub} className="row space-between" style={{ alignItems: "center" }}>
-              <div style={{ fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace", fontSize: 12 }}>
-                {g.granteeSub}
-                <span className="pill" style={{ marginLeft: 8 }}>{g.mode}</span>
-              </div>
-              <button className="btn btn-danger" onClick={() => void removeShare(t.taskId, g.granteeSub)} disabled={sharesLoading}>
-                Revoke
-              </button>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  </div>
-) : null}
+                        <div style={{ marginTop: 10 }}>
+                          {sharesLoading && shares.length === 0 ? (
+                            <div className="help">Loading…</div>
+                          ) : shares.length === 0 ? (
+                            <div className="help">Not shared with anyone.</div>
+                          ) : (
+                            <div style={{ display: "grid", gap: 8 }}>
+                              {shares.map((g) => (
+                                <div key={g.granteeSub} className="row space-between" style={{ alignItems: "center" }}>
+                                  <div style={{ fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace", fontSize: 12 }}>
+                                    {g.granteeSub}
+                                    <span className="pill" style={{ marginLeft: 8 }}>{g.mode}</span>
+                                  </div>
+                                  <button className="btn btn-danger" onClick={() => void removeShare(t.taskId, g.granteeSub)} disabled={sharesLoading}>
+                                    Revoke
+                                  </button>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    ) : null}
                   </div>
                 </div>
               );

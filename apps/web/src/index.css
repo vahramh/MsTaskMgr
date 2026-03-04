@@ -39,3 +39,8 @@ button {
 ::placeholder {
   color: #9ca3af;
 }
+
+/* === Phase 6 PR5+PR6: prevent page-level horizontal scroll (tabs can scroll) === */
+html, body {
+  overflow-x: hidden;
+}
