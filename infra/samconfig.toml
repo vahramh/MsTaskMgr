@@ -1,0 +1,13 @@
+version = 0.1
+
+[default.deploy.parameters]
+stack_name = "MsTaskMgr-dev"
+resolve_s3 = true
+s3_prefix = "MsTaskMgr-dev"
+region = "ap-southeast-2"
+profile = "MsTaskMgrDeployer"
+confirm_changeset = true
+capabilities = "CAPABILITY_IAM"
+disable_rollback = true
+parameter_overrides = "CognitoUserPoolId=\"ap-southeast-2_2X2XtKkRA\" CognitoUserPoolClientId=\"19qj35nqj8r9lf8nfiefbtl01b\" CognitoRegion=\"ap-southeast-2\""
+image_repositories = []

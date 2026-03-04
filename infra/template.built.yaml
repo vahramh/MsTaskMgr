@@ -1,0 +1,293 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: Task Manager API (v1)
+Parameters:
+  CognitoUserPoolId:
+    Type: String
+  CognitoUserPoolClientId:
+    Type: String
+  CognitoRegion:
+    Type: String
+Globals:
+  Function:
+    Runtime: nodejs20.x
+    Timeout: 10
+    MemorySize: 256
+    Architectures:
+    - x86_64
+    Environment:
+      Variables:
+        TASKS_TABLE:
+          Ref: TasksTable
+        TASKS_GSI1: GSI1
+Resources:
+  HttpApi:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      Auth:
+        Authorizers:
+          CognitoAuthorizer:
+            JwtConfiguration:
+              issuer:
+                Fn::Sub: https://cognito-idp.${CognitoRegion}.amazonaws.com/${CognitoUserPoolId}
+              audience:
+              - Ref: CognitoUserPoolClientId
+            IdentitySource: $request.header.Authorization
+        DefaultAuthorizer: CognitoAuthorizer
+      CorsConfiguration:
+        AllowOrigins:
+        - http://localhost:5173
+        AllowHeaders:
+        - Authorization
+        - Content-Type
+        AllowMethods:
+        - GET
+        - POST
+        - PATCH
+        - DELETE
+        - OPTIONS
+        MaxAge: 600
+  TasksTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName:
+        Fn::Sub: ${AWS::StackName}-tasks
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+      - AttributeName: PK
+        AttributeType: S
+      - AttributeName: SK
+        AttributeType: S
+      - AttributeName: GSI1PK
+        AttributeType: S
+      - AttributeName: GSI1SK
+        AttributeType: S
+      KeySchema:
+      - AttributeName: PK
+        KeyType: HASH
+      - AttributeName: SK
+        KeyType: RANGE
+      GlobalSecondaryIndexes:
+      - IndexName: GSI1
+        KeySchema:
+        - AttributeName: GSI1PK
+          KeyType: HASH
+        - AttributeName: GSI1SK
+          KeyType: RANGE
+        Projection:
+          ProjectionType: ALL
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+  MeFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: MeFunction
+      Handler: me.handler
+      Events:
+        MeRoute:
+          Type: HttpApi
+          Properties:
+            ApiId:
+              Ref: HttpApi
+            Path: /me
+            Method: GET
+            Auth:
+              Authorizer: CognitoAuthorizer
+      Environment:
+        Variables:
+          NODE_OPTIONS: ' --enable-source-maps'
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        EntryPoints:
+        - src/handlers/me.ts
+        Format: cjs
+        Minify: false
+        Sourcemap: true
+        Target: node20
+      SamResourceId: MeFunction
+  CreateTaskFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: CreateTaskFunction
+      Handler: tasks-create.handler
+      Policies:
+      - DynamoDBCrudPolicy:
+          TableName:
+            Ref: TasksTable
+      Events:
+        CreateTaskRoute:
+          Type: HttpApi
+          Properties:
+            ApiId:
+              Ref: HttpApi
+            Path: /tasks
+            Method: POST
+      Environment:
+        Variables:
+          NODE_OPTIONS: ' --enable-source-maps'
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        EntryPoints:
+        - src/handlers/tasks-create.ts
+        Format: cjs
+        Minify: false
+        Sourcemap: true
+        Target: node20
+      SamResourceId: CreateTaskFunction
+  ListTasksFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ListTasksFunction
+      Handler: tasks-list.handler
+      Policies:
+      - DynamoDBReadPolicy:
+          TableName:
+            Ref: TasksTable
+      Events:
+        ListTasksRoute:
+          Type: HttpApi
+          Properties:
+            ApiId:
+              Ref: HttpApi
+            Path: /tasks
+            Method: GET
+      Environment:
+        Variables:
+          NODE_OPTIONS: ' --enable-source-maps'
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        EntryPoints:
+        - src/handlers/tasks-list.ts
+        Format: cjs
+        Minify: false
+        Sourcemap: true
+        Target: node20
+      SamResourceId: ListTasksFunction
+  UpdateTaskFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: UpdateTaskFunction
+      Handler: tasks-update.handler
+      Policies:
+      - DynamoDBCrudPolicy:
+          TableName:
+            Ref: TasksTable
+      Events:
+        UpdateTaskRoute:
+          Type: HttpApi
+          Properties:
+            ApiId:
+              Ref: HttpApi
+            Path: /tasks/{taskId}
+            Method: PATCH
+      Environment:
+        Variables:
+          NODE_OPTIONS: ' --enable-source-maps'
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        EntryPoints:
+        - src/handlers/tasks-update.ts
+        Format: cjs
+        Minify: false
+        Sourcemap: true
+        Target: node20
+      SamResourceId: UpdateTaskFunction
+  DeleteTaskFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: DeleteTaskFunction
+      Handler: tasks-delete.handler
+      Policies:
+      - DynamoDBCrudPolicy:
+          TableName:
+            Ref: TasksTable
+      Events:
+        DeleteTaskRoute:
+          Type: HttpApi
+          Properties:
+            ApiId:
+              Ref: HttpApi
+            Path: /tasks/{taskId}
+            Method: DELETE
+      Environment:
+        Variables:
+          NODE_OPTIONS: ' --enable-source-maps'
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        EntryPoints:
+        - src/handlers/tasks-delete.ts
+        Format: cjs
+        Minify: false
+        Sourcemap: true
+        Target: node20
+      SamResourceId: DeleteTaskFunction
+  CompleteTaskFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: CompleteTaskFunction
+      Handler: tasks-complete.handler
+      Policies:
+      - DynamoDBCrudPolicy:
+          TableName:
+            Ref: TasksTable
+      Events:
+        CompleteTaskRoute:
+          Type: HttpApi
+          Properties:
+            ApiId:
+              Ref: HttpApi
+            Path: /tasks/{taskId}/complete
+            Method: POST
+      Environment:
+        Variables:
+          NODE_OPTIONS: ' --enable-source-maps'
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        EntryPoints:
+        - src/handlers/tasks-complete.ts
+        Format: cjs
+        Minify: false
+        Sourcemap: true
+        Target: node20
+      SamResourceId: CompleteTaskFunction
+  HealthFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: HealthFunction
+      Handler: health.handler
+      Events:
+        HealthRoute:
+          Type: HttpApi
+          Properties:
+            ApiId:
+              Ref: HttpApi
+            Path: /health
+            Method: GET
+            Auth:
+              Authorizer: NONE
+      Environment:
+        Variables:
+          NODE_OPTIONS: ' --enable-source-maps'
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        EntryPoints:
+        - src/handlers/health.ts
+        Format: cjs
+        Minify: false
+        Sourcemap: true
+        Target: node20
+      SamResourceId: HealthFunction
+Outputs:
+  ApiUrl:
+    Description: HTTP API base URL
+    Value:
+      Fn::Sub: https://${HttpApi}.execute-api.${AWS::Region}.amazonaws.com
+  LocalHint:
+    Value: 'Run: sam local start-api --template infra/template.yaml'

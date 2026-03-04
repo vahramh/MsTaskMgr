@@ -1,0 +1,735 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+Description: Task Manager API (v1)
+
+Parameters:
+  CognitoUserPoolId:
+    Type: String
+  CognitoUserPoolClientId:
+    Type: String
+  CognitoRegion:
+    Type: String
+  AllowedOrigins:
+    Type: CommaDelimitedList
+    Default: "http://localhost:5173,http://127.0.0.1:5173"
+    Description: Allowed CORS origins for the HTTP API
+  AccessLogRetentionDays:
+    Type: Number
+    Default: 30
+    Description: CloudWatch Logs retention (days) for API access logs
+
+Globals:
+  Function:
+    Runtime: nodejs20.x
+    Timeout: 10
+    MemorySize: 256
+    Architectures: [x86_64]
+    Environment:
+      Variables:
+        TASKS_TABLE: !Ref TasksTable
+        TASKS_GSI1: GSI1
+
+Resources:
+  HttpApiAccessLogs:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/apigateway/${AWS::StackName}-httpapi"
+      RetentionInDays: !Ref AccessLogRetentionDays
+
+  HttpApi:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      Auth:
+        Authorizers:
+          CognitoAuthorizer:
+            JwtConfiguration:
+              issuer: !Sub "https://cognito-idp.${CognitoRegion}.amazonaws.com/${CognitoUserPoolId}"
+              audience:
+                - !Ref CognitoUserPoolClientId
+            IdentitySource: "$request.header.Authorization"
+        DefaultAuthorizer: CognitoAuthorizer
+      CorsConfiguration:
+        AllowOrigins: !Ref AllowedOrigins
+        AllowHeaders:
+          - Authorization
+          - Content-Type
+        ExposeHeaders:
+          - x-request-id
+          - apigw-requestid
+        AllowMethods:
+          - GET
+          - POST
+          - PATCH
+          - DELETE
+          - OPTIONS
+        MaxAge: 600
+      AccessLogSettings:
+        DestinationArn: !GetAtt HttpApiAccessLogs.Arn
+        Format: >-
+          {"requestId":"$context.requestId","ip":"$context.identity.sourceIp","userAgent":"$context.identity.userAgent","requestTime":"$context.requestTime","httpMethod":"$context.httpMethod","routeKey":"$context.routeKey","path":"$context.path","status":"$context.status","protocol":"$context.protocol","responseLength":"$context.responseLength","integrationError":"$context.integrationErrorMessage"}
+
+  TasksTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub "${AWS::StackName}-tasks"
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: PK
+          AttributeType: S
+        - AttributeName: SK
+          AttributeType: S
+        - AttributeName: GSI1PK
+          AttributeType: S
+        - AttributeName: GSI1SK
+          AttributeType: S
+      KeySchema:
+        - AttributeName: PK
+          KeyType: HASH
+        - AttributeName: SK
+          KeyType: RANGE
+      GlobalSecondaryIndexes:
+        - IndexName: GSI1
+          KeySchema:
+            - AttributeName: GSI1PK
+              KeyType: HASH
+            - AttributeName: GSI1SK
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+
+  MeFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ../services/api
+      Handler: me.handler
+      Events:
+        MeRoute:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /me
+            Method: GET
+            Auth:
+              Authorizer: CognitoAuthorizer
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        Format: cjs
+        Minify: false
+        Target: node20
+        Sourcemap: true
+        EntryPoints:
+          - src/handlers/me.ts
+
+  CreateTaskFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ../services/api
+      Handler: tasks-create.handler
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref TasksTable
+      Events:
+        CreateTaskRoute:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /tasks
+            Method: POST
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        Format: cjs
+        Minify: false
+        Target: node20
+        Sourcemap: true
+        EntryPoints:
+          - src/handlers/tasks-create.ts
+
+  ListTasksFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ../services/api
+      Handler: tasks-list.handler
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref TasksTable
+      Events:
+        ListTasksRoute:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /tasks
+            Method: GET
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        Format: cjs
+        Minify: false
+        Target: node20
+        Sourcemap: true
+        EntryPoints:
+          - src/handlers/tasks-list.ts
+
+  UpdateTaskFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ../services/api
+      Handler: tasks-update.handler
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref TasksTable
+      Events:
+        UpdateTaskRoute:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /tasks/{taskId}
+            Method: PATCH
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        Format: cjs
+        Minify: false
+        Target: node20
+        Sourcemap: true
+        EntryPoints:
+          - src/handlers/tasks-update.ts
+
+  DeleteTaskFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ../services/api
+      Handler: tasks-delete.handler
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref TasksTable
+      Events:
+        DeleteTaskRoute:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /tasks/{taskId}
+            Method: DELETE
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        Format: cjs
+        Minify: false
+        Target: node20
+        Sourcemap: true
+        EntryPoints:
+          - src/handlers/tasks-delete.ts
+
+  # ----------------------------------------------------------------------
+  # Phase 3: Sharing
+
+  CreateShareFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ../services/api
+      Handler: tasks-shares-create.handler
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref TasksTable
+      Events:
+        CreateShareRoute:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /tasks/{taskId}/shares
+            Method: POST
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        Format: cjs
+        Minify: false
+        Target: node20
+        Sourcemap: true
+        EntryPoints:
+          - src/handlers/tasks-shares-create.ts
+
+  ListSharesFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ../services/api
+      Handler: tasks-shares-list.handler
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref TasksTable
+      Events:
+        ListSharesRoute:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /tasks/{taskId}/shares
+            Method: GET
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        Format: cjs
+        Minify: false
+        Target: node20
+        Sourcemap: true
+        EntryPoints:
+          - src/handlers/tasks-shares-list.ts
+
+  RevokeShareFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ../services/api
+      Handler: tasks-shares-delete.handler
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref TasksTable
+      Events:
+        RevokeShareRoute:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /tasks/{taskId}/shares/{granteeSub}
+            Method: DELETE
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        Format: cjs
+        Minify: false
+        Target: node20
+        Sourcemap: true
+        EntryPoints:
+          - src/handlers/tasks-shares-delete.ts
+
+  ListSharedWithMeFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ../services/api
+      Handler: shared-list.handler
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref TasksTable
+      Events:
+        ListSharedWithMeRoute:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /shared
+            Method: GET
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        Format: cjs
+        Minify: false
+        Target: node20
+        Sourcemap: true
+        EntryPoints:
+          - src/handlers/shared-list.ts
+
+  # Shared access routes (read/write via owner partition; authorized by SHARED_POINTER)
+
+  SharedRootGetFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ../services/api
+      Handler: shared-root-get.handler
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref TasksTable
+      Events:
+        SharedRootGetRoute:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /shared/{ownerSub}/tasks/{rootTaskId}
+            Method: GET
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        Format: cjs
+        Minify: false
+        Target: node20
+        Sourcemap: true
+        EntryPoints:
+          - src/handlers/shared-root-get.ts
+
+  SharedRootUpdateFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ../services/api
+      Handler: shared-root-update.handler
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref TasksTable
+      Events:
+        SharedRootUpdateRoute:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /shared/{ownerSub}/tasks/{rootTaskId}
+            Method: PATCH
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        Format: cjs
+        Minify: false
+        Target: node20
+        Sourcemap: true
+        EntryPoints:
+          - src/handlers/shared-root-update.ts
+
+  SharedSubtasksListFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ../services/api
+      Handler: shared-subtasks-list.handler
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref TasksTable
+      Events:
+        SharedSubtasksListRoute:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /shared/{ownerSub}/tasks/{rootTaskId}/subtasks/{parentTaskId}
+            Method: GET
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        Format: cjs
+        Minify: false
+        Target: node20
+        Sourcemap: true
+        EntryPoints:
+          - src/handlers/shared-subtasks-list.ts
+
+  SharedSubtasksCreateFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ../services/api
+      Handler: shared-subtasks-create.handler
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref TasksTable
+      Events:
+        SharedSubtasksCreateRoute:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /shared/{ownerSub}/tasks/{rootTaskId}/subtasks/{parentTaskId}
+            Method: POST
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        Format: cjs
+        Minify: false
+        Target: node20
+        Sourcemap: true
+        EntryPoints:
+          - src/handlers/shared-subtasks-create.ts
+
+  SharedSubtasksUpdateFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ../services/api
+      Handler: shared-subtasks-update.handler
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref TasksTable
+      Events:
+        SharedSubtasksUpdateRoute:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /shared/{ownerSub}/tasks/{rootTaskId}/subtasks/{parentTaskId}/{subtaskId}
+            Method: PATCH
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        Format: cjs
+        Minify: false
+        Target: node20
+        Sourcemap: true
+        EntryPoints:
+          - src/handlers/shared-subtasks-update.ts
+
+  SharedSubtasksDeleteFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ../services/api
+      Handler: shared-subtasks-delete.handler
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref TasksTable
+      Events:
+        SharedSubtasksDeleteRoute:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /shared/{ownerSub}/tasks/{rootTaskId}/subtasks/{parentTaskId}/{subtaskId}
+            Method: DELETE
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        Format: cjs
+        Minify: false
+        Target: node20
+        Sourcemap: true
+        EntryPoints:
+          - src/handlers/shared-subtasks-delete.ts
+
+  CreateSubtaskFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ../services/api
+      Handler: tasks-subtasks-create.handler
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref TasksTable
+      Events:
+        CreateSubtaskRoute:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /tasks/{taskId}/subtasks
+            Method: POST
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        Format: cjs
+        Minify: false
+        Target: node20
+        Sourcemap: true
+        EntryPoints:
+          - src/handlers/tasks-subtasks-create.ts
+
+  ListSubtasksFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ../services/api
+      Handler: tasks-subtasks-list.handler
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref TasksTable
+      Events:
+        ListSubtasksRoute:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /tasks/{taskId}/subtasks
+            Method: GET
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        Format: cjs
+        Minify: false
+        Target: node20
+        Sourcemap: true
+        EntryPoints:
+          - src/handlers/tasks-subtasks-list.ts
+
+  UpdateSubtaskFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ../services/api
+      Handler: tasks-subtasks-update.handler
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref TasksTable
+      Events:
+        UpdateSubtaskRoute:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /tasks/{taskId}/subtasks/{subtaskId}
+            Method: PATCH
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        Format: cjs
+        Minify: false
+        Target: node20
+        Sourcemap: true
+        EntryPoints:
+          - src/handlers/tasks-subtasks-update.ts
+
+  DeleteSubtaskFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ../services/api
+      Handler: tasks-subtasks-delete.handler
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref TasksTable
+      Events:
+        DeleteSubtaskRoute:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /tasks/{taskId}/subtasks/{subtaskId}
+            Method: DELETE
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        Format: cjs
+        Minify: false
+        Target: node20
+        Sourcemap: true
+        EntryPoints:
+          - src/handlers/tasks-subtasks-delete.ts
+
+  CompleteTaskFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ../services/api
+      Handler: tasks-complete.handler
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref TasksTable
+      Events:
+        CompleteTaskRoute:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /tasks/{taskId}/complete
+            Method: POST
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        Format: cjs
+        Minify: false
+        Target: node20
+        Sourcemap: true
+        EntryPoints:
+          - src/handlers/tasks-complete.ts
+
+  ReopenTaskFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ../services/api
+      Handler: tasks-reopen.handler
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref TasksTable
+      Events:
+        ReopenTaskRoute:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /tasks/{taskId}/reopen
+            Method: POST
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        Format: cjs
+        Minify: false
+        Target: node20
+        Sourcemap: true
+        EntryPoints:
+          - src/handlers/tasks-reopen.ts
+
+  ReopenSubtaskFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ../services/api
+      Handler: tasks-subtasks-reopen.handler
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref TasksTable
+      Events:
+        ReopenSubtaskRoute:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /tasks/{taskId}/subtasks/{subtaskId}/reopen
+            Method: POST
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        Format: cjs
+        Minify: false
+        Target: node20
+        Sourcemap: true
+        EntryPoints:
+          - src/handlers/tasks-subtasks-reopen.ts
+
+  SharedRootReopenFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ../services/api
+      Handler: shared-root-reopen.handler
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref TasksTable
+      Events:
+        SharedRootReopenRoute:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /shared/{ownerSub}/tasks/{rootTaskId}/reopen
+            Method: POST
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        Format: cjs
+        Minify: false
+        Target: node20
+        Sourcemap: true
+        EntryPoints:
+          - src/handlers/shared-root-reopen.ts
+
+  SharedSubtaskReopenFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ../services/api
+      Handler: shared-subtasks-reopen.handler
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref TasksTable
+      Events:
+        SharedSubtaskReopenRoute:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /shared/{ownerSub}/tasks/{rootTaskId}/subtasks/{parentTaskId}/{subtaskId}/reopen
+            Method: POST
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        Format: cjs
+        Minify: false
+        Target: node20
+        Sourcemap: true
+        EntryPoints:
+          - src/handlers/shared-subtasks-reopen.ts
+
+  HealthFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ../services/api
+      Handler: health.handler
+      Events:
+        HealthRoute:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /health
+            Method: GET
+            Auth:
+              Authorizer: NONE
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        Format: cjs
+        Minify: false
+        Target: node20
+        Sourcemap: true
+        EntryPoints:
+          - src/handlers/health.ts
+
+Outputs:
+  ApiUrl:
+    Description: HTTP API base URL
+    Value: !Sub "https://${HttpApi}.execute-api.${AWS::Region}.amazonaws.com"
+  LocalHint:
+    Value: "Run: sam local start-api --template infra/template.yaml"
