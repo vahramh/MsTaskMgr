@@ -3,6 +3,7 @@ import { useAuth } from "../auth/AuthContext";
 import ProfilePage from "./ProfilePage";
 import TasksPage from "../features/tasks/TasksPage";
 import SharedTasksPage from "../features/shared/SharedTasksPage";
+import HelpPage from "../features/help/HelpPage";
 
 function TabLink({ to, label }: { to: string; label: string }) {
   return (
@@ -32,10 +33,16 @@ export default function AppShell() {
             <div style={{ fontSize: 22, fontWeight: 900 }}>Task Manager</div>
             <div style={{ fontSize: 13, color: "#6b7280" }}>Phase 1 MVP</div>
           </div>
-          <div className="row">
+          <div className="row" style={{ gap: 10 }}>
             <button className="btn btn-secondary" onClick={() => window.location.assign("/")}>
               Home
             </button>
+
+            {/* NEW: Help (public route) */}
+            <button className="btn btn-secondary" onClick={() => window.location.assign("/help")}>
+              Help
+            </button>
+
             <button className="btn" onClick={logout}>
               Sign out
             </button>
@@ -46,6 +53,8 @@ export default function AppShell() {
           <TabLink to="/app/tasks" label="Tasks" />
           <TabLink to="/app/shared" label="Shared" />
           <TabLink to="/app/profile" label="Profile" />
+          {/* OPTIONAL: in-app help tab */}
+          <TabLink to="/app/help" label="Help" />
         </div>
 
         <Routes>
@@ -53,6 +62,10 @@ export default function AppShell() {
           <Route path="tasks" element={<TasksPage />} />
           <Route path="shared" element={<SharedTasksPage />} />
           <Route path="profile" element={<ProfilePage />} />
+
+          {/* OPTIONAL: in-app help route */}
+          <Route path="help" element={<HelpPage />} />
+
           <Route path="*" element={<Navigate to="tasks" replace />} />
         </Routes>
       </div>

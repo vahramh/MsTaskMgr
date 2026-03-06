@@ -4,6 +4,7 @@ import AuthCallback from "./auth/AuthCallback";
 import Home from "./pages/Home";
 import AppShell from "./pages/AppShell";
 import ProtectedRoute from "./auth/ProtectedRoute";
+import HelpPage from "./features/help/HelpPage";
 
 export default function App() {
   return (
@@ -12,6 +13,7 @@ export default function App() {
 
       {/* Public landing */}
       <Route path="/" element={<Home />} />
+      <Route path="/help" element={<HelpPage />} />
 
       {/* Protected app area */}
       <Route

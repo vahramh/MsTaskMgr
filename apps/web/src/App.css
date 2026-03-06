@@ -253,3 +253,18 @@
 .meta-row, .meta-muted, .meta-strong { min-width: 0; overflow-wrap: anywhere; }
 code { word-break: break-all; }
 .task-card { min-width: 0; }
+
+/* Subtasks panel must not shrink-to-fit */
+.subtasks-card {
+  display: block;
+  width: 100%;
+  max-width: none;
+  box-sizing: border-box;
+}
+
+/* Ensure nested wrapper doesn't constrain width */
+.tree-wrap {
+  width: 100%;
+  max-width: none;
+  box-sizing: border-box;
+}

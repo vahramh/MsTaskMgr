@@ -1150,8 +1150,8 @@ export default function TasksPage() {
         filterState === "all" ? st.items : st.items.filter((x) => deriveState(x) === filterState);
 
       return (
-        <div style={{ marginTop: 10, marginLeft: paddingLeft }}>
-          <div className="card" style={{ padding: 12, background: "#f9fafb" }}>
+        <div className="tree-wrap" style={{ marginTop: 10, paddingLeft }}>
+          <div className="card subtasks-card" style={{ padding: 12, background: "#f9fafb" }}>
             <div className="row space-between" style={{ marginBottom: 8 }}>
               <div style={{ fontWeight: 700 }}>Subtasks</div>
               <div className="help">
@@ -1217,14 +1217,13 @@ export default function TasksPage() {
                   const expandedHere = isExpanded(c.taskId);
 
                   return (
-                    <div
-                      key={c.taskId}
-                      className="card task-card"
-                      data-state={deriveState(c)}
-                      data-entity={deriveEntityType(c)}
-                      style={{
-                        padding: 12,
-                        marginLeft: 12,
+                    <div key={c.taskId} className="tree-wrap" style={{ paddingLeft: 14 }}>
+                      <div
+                        className="card task-card"
+                        data-state={deriveState(c)}
+                        data-entity={deriveEntityType(c)}
+                        style={{
+                          padding: 12,
                         borderLeft: dueTone(c.dueDate).border ? `4px solid ${dueTone(c.dueDate).border}` : undefined,
                         opacity: c.taskId.startsWith("temp-") ? 0.7 : 1,
                       }}
@@ -1438,8 +1437,6 @@ export default function TasksPage() {
                               {expandedHere ? "Hide subtasks" : "Show subtasks"}
                             </button>
                           </div>
-
-                          {expandedHere ? renderChildren(c.taskId, depth + 1) : null}
                         </div>
 
                         <div
@@ -1580,6 +1577,9 @@ export default function TasksPage() {
                             Delete
                           </button>
                         </div>
+                      </div>
+
+                      {expandedHere ? renderChildren(c.taskId, depth + 1) : null}
                       </div>
                     </div>
                   );
@@ -2301,8 +2301,6 @@ export default function TasksPage() {
                               {childrenState.loaded ? ` (${childrenState.items.length})` : ""}
                             </button>
                           </div>
-
-                          {expandedHere ? renderChildren(t.taskId, 1) : null}
                         </>
                       )}
                     </div>
@@ -2528,6 +2526,8 @@ export default function TasksPage() {
                       </div>
                     ) : null}
                   </div>
+
+                  {expandedHere ? renderChildren(t.taskId, 1) : null}
                 </div>
               );
             })}

@@ -785,8 +785,8 @@ const toggleCompleteNode = useCallback(
       const paddingLeft = Math.min(depth * 18, 72);
 
       return (
-        <div style={{ marginTop: 10, marginLeft: paddingLeft }}>
-          <div className="card" style={{ padding: 12, background: "#f9fafb" }}>
+        <div className="tree-wrap" style={{ marginTop: 10, paddingLeft }}>
+          <div className="card subtasks-card" style={{ padding: 12, background: "#f9fafb" }}>
             <div className="row space-between" style={{ marginBottom: 8 }}>
               <div style={{ fontWeight: 700 }}>Subtasks</div>
               <div className="help">
@@ -847,12 +847,13 @@ const toggleCompleteNode = useCallback(
                   const expandedHere = Boolean(expanded[c.taskId]);
 
                   return (
-                    <div
-                      key={c.taskId}
-                      className="card"
-                      style={{
-                        padding: 12,
-                        marginLeft: 12,
+                    <div key={c.taskId} className="tree-wrap" style={{ paddingLeft: 14 }}>
+                      <div
+                        className="card task-card"
+                        data-state={deriveState(c)}
+                        data-entity={deriveEntityType(c)}
+                        style={{
+                          padding: 12,
                         borderLeft: dueTone(c.dueDate).border ? `4px solid ${dueTone(c.dueDate).border}` : undefined,
                         opacity: c.taskId.startsWith("temp-") ? 0.7 : 1,
                       }}
@@ -985,6 +986,7 @@ const toggleCompleteNode = useCallback(
                             Delete
                           </button>
                         </div>
+                      </div>
                       </div>
                     </div>
                   );
@@ -1392,8 +1394,6 @@ const toggleCompleteNode = useCallback(
                         {getSubtree(selectedRoot.taskId).loaded ? ` (${getSubtree(selectedRoot.taskId).items.length})` : ""}
                       </button>
                     </div>
-
-                    {expanded[selectedRoot.taskId] ? renderChildren(selected, selectedRoot.taskId, 1) : null}
                   </>
                 )}
               </div>
