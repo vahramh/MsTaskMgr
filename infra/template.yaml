@@ -23,7 +23,8 @@ Globals:
     Runtime: nodejs20.x
     Timeout: 10
     MemorySize: 256
-    Architectures: [x86_64]
+    Architectures:
+      - x86_64
     Environment:
       Variables:
         TASKS_TABLE: !Ref TasksTable
@@ -59,6 +60,7 @@ Resources:
         AllowMethods:
           - GET
           - POST
+          - PUT
           - PATCH
           - DELETE
           - OPTIONS
@@ -223,9 +225,6 @@ Resources:
         EntryPoints:
           - src/handlers/tasks-delete.ts
 
-  # ----------------------------------------------------------------------
-  # Phase 3: Sharing
-
   CreateShareFunction:
     Type: AWS::Serverless::Function
     Properties:
@@ -325,8 +324,6 @@ Resources:
         Sourcemap: true
         EntryPoints:
           - src/handlers/shared-list.ts
-
-  # Shared access routes (read/write via owner partition; authorized by SHARED_POINTER)
 
   SharedRootGetFunction:
     Type: AWS::Serverless::Function
@@ -726,6 +723,93 @@ Resources:
         Sourcemap: true
         EntryPoints:
           - src/handlers/health.ts
+
+  TodayGetFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ../services/api
+      Handler: today-get.handler
+      Timeout: 20
+      MemorySize: 512
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref TasksTable
+      Events:
+        TodayGetRoute:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /today
+            Method: GET
+            Auth:
+              Authorizer: CognitoAuthorizer
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        Format: cjs
+        Minify: false
+        Target: node20
+        Sourcemap: true
+        EntryPoints:
+          - src/handlers/today-get.ts
+
+
+
+  InsightsGetFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ../services/api
+      Handler: insights-get.handler
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref TasksTable
+      Events:
+        InsightsGetRoute:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /insights
+            Method: GET
+            Auth:
+              Authorizer: CognitoAuthorizer
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        Format: cjs
+        Minify: false
+        Target: node20
+        Sourcemap: true
+        EntryPoints:
+          - src/handlers/insights-get.ts
+
+  ReviewGetFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ../services/api
+      Handler: review-get.handler
+      Timeout: 20
+      MemorySize: 512
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref TasksTable
+      Events:
+        ReviewGetRoute:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /review
+            Method: GET
+            Auth:
+              Authorizer: CognitoAuthorizer
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        Format: cjs
+        Minify: false
+        Target: node20
+        Sourcemap: true
+        EntryPoints:
+          - src/handlers/review-get.ts
 
 Outputs:
   ApiUrl:

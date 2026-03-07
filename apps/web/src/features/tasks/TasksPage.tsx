@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
+import { getHygieneSignals } from "./hygiene";
 import type { Task, WorkflowState, EntityType } from "@tm/shared";
 import { useAuth } from "../../auth/AuthContext";
 import InlineAlert from "../../components/InlineAlert";
@@ -310,6 +311,7 @@ export default function TasksPage() {
   const viewParam = (searchParams.get("view") ?? "inbox") as string;
   const focusId = searchParams.get("focus") ?? null;
   const focusViewParam = (searchParams.get("pview") ?? "next") as string;
+  const scrollToId = searchParams.get("scrollTo") ?? null;
   const focusView: WorkflowState | "all" = ([
     "all",
     "inbox",
@@ -1379,14 +1381,7 @@ export default function TasksPage() {
                                           : null,
 
                                       // dueDate rules (backend authoritative; UI blocks obvious mistakes)
-                                      dueDate:
-                                        editor.state === "inbox"
-                                          ? null
-                                          : due
-                                            ? due
-                                            : editor.state === "scheduled"
-                                              ? null
-                                              : null,
+                                      dueDate: due ? due : null,
 
                                       priority: pr ? (Number(pr) as any) : null,
                                       effort: ev ? { unit: editor.effortUnit, value: Number(ev) } : null,
@@ -1631,6 +1626,13 @@ export default function TasksPage() {
   // ===========================================================
 
   const empty = !initialLoading && visibleItems.length === 0;
+
+  useEffect(() => {
+    if (!scrollToId) return;
+    const el = document.querySelector(`[data-task-id="${CSS.escape(scrollToId)}"]`) as HTMLElement | null;
+    if (!el) return;
+    window.requestAnimationFrame(() => el.scrollIntoView({ behavior: "smooth", block: "center" }));
+  }, [scrollToId, visibleItems.length, subtrees]);
 
   return (
     <div className="card">
@@ -1980,11 +1982,24 @@ export default function TasksPage() {
           <TaskListSkeleton count={4} />
         ) : view === "projects" && focusId ? (
           <div style={{ display: "grid", gap: 10 }}>
-            <div className="card" style={{ padding: 14 }}>
+            <div className="card" style={{ padding: 14 }} data-task-id={focusId ?? undefined}>
               <div className="row space-between" style={{ alignItems: "center" }}>
                 <div style={{ fontWeight: 900 }}>Project workspace</div>
                 <div className="help">{focusCounts.all} item{focusCounts.all === 1 ? "" : "s"} loaded</div>
               </div>
+              {focusedProject ? (
+                <div style={{ marginTop: 10 }}>
+                  <div style={{ fontWeight: 700 }}>{focusedProject.title}</div>
+                  <div className="help" style={{ marginTop: 4 }}>
+                    {deriveState(focusedProject)} · {deriveEntityType(focusedProject)}
+                    {focusedProject.context ? ` · ${focusedProject.context}` : ""}
+                    {fmtDue(focusedProject.dueDate) ? ` · Due ${fmtDue(focusedProject.dueDate)}` : ""}
+                  </div>
+                  <div className="row" style={{ gap: 6, flexWrap: "wrap", marginTop: 8 }}>
+                    {getHygieneSignals(focusedProject, new Date()).map((signal) => <span key={signal.key} className="pill" title={signal.label}>{signal.icon} {signal.label}</span>)}
+                  </div>
+                </div>
+              ) : null}
 
               <div style={{ marginTop: 10 }}>
                 <div className="tabs" role="tablist" aria-label="Project view">
@@ -2052,10 +2067,12 @@ export default function TasksPage() {
               const isEditing = editor?.taskId === t.taskId;
               const expandedHere = isExpanded(t.taskId);
               const childrenState = getSubtree(t.taskId);
+              const hygieneSignals = getHygieneSignals(t, new Date());
 
               return (
                 <div
                   key={t.taskId}
+                  data-task-id={t.taskId}
                   className="card task-card"
                   data-state={deriveState(t)}
                   data-entity={deriveEntityType(t)}
@@ -2311,6 +2328,7 @@ export default function TasksPage() {
 
                                   {t.priority ? <span className="meta-muted">P{t.priority}</span> : null}
                                   {t.effort ? <span className="meta-muted">Effort {t.effort.value} {t.effort.unit}</span> : null}
+                                  {hygieneSignals.map((signal) => <span key={signal.key} className="meta-muted" title={signal.label}>{signal.icon} {signal.label}</span>)}
                                   <span className="meta-muted">Updated {formatTime(t.updatedAt)}</span>
                                   {t.taskId.startsWith("temp-") ? <span className="meta-muted">Syncing…</span> : null}
                                 </div>

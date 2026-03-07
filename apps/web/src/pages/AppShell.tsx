@@ -5,6 +5,7 @@ import TasksPage from "../features/tasks/TasksPage";
 import SharedTasksPage from "../features/shared/SharedTasksPage";
 import HelpPage from "../features/help/HelpPage";
 import TodayPage from "../features/today/TodayPage";
+import ReviewPage from "../features/review/ReviewPage";
 
 function TabLink({ to, label }: { to: string; label: string }) {
   return (
@@ -52,6 +53,7 @@ export default function AppShell() {
 
         <div className="row" style={{ gap: 10, marginBottom: 14 }}>
           <TabLink to="/app/today" label="Today" />
+          <TabLink to="/app/review" label="Review" />
           <TabLink to="/app/tasks" label="Tasks" />
           <TabLink to="/app/shared" label="Shared" />
           <TabLink to="/app/profile" label="Profile" />
@@ -61,15 +63,13 @@ export default function AppShell() {
 
         <Routes>
           <Route path="today" element={<TodayPage />} />
-          <Route path="/" element={<Navigate to="tasks" replace />} />
+          <Route path="review" element={<ReviewPage />} />
+          <Route index element={<Navigate to="/app/tasks" replace />} />
           <Route path="tasks" element={<TasksPage />} />
           <Route path="shared" element={<SharedTasksPage />} />
           <Route path="profile" element={<ProfilePage />} />
-
-          {/* OPTIONAL: in-app help route */}
           <Route path="help" element={<HelpPage />} />
-
-          <Route path="*" element={<Navigate to="tasks" replace />} />
+          <Route path="*" element={<Navigate to="/app/tasks" replace />} />
         </Routes>
       </div>
     </div>

@@ -11,7 +11,8 @@ await build({
   "src/handlers/tasks-list.ts",
   "src/handlers/tasks-update.ts",
   "src/handlers/tasks-delete.ts",
-  "src/handlers/tasks-complete.ts"
+  "src/handlers/tasks-complete.ts",
+  "src/handlers/today-get.ts"
 ],
   bundle: true,
   platform: "node",

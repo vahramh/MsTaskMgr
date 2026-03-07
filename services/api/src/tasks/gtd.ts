@@ -87,9 +87,6 @@ export function validateMergedTask(task: Task): { ok: true } | { ok: false; mess
   if (!task.state || !isWorkflowState(task.state)) return { ok: false, message: "Missing/invalid state" };
   if (!task.entityType || !isEntityType(task.entityType)) return { ok: false, message: "Missing/invalid entityType" };
 
-  // Inbox cannot have due dates.
-  if (task.state === "inbox" && task.dueDate) return { ok: false, message: "Inbox items cannot have dueDate" };
-
   // Scheduled requires dueDate.
   if (task.state === "scheduled" && !task.dueDate) return { ok: false, message: "Scheduled items must have dueDate" };
 

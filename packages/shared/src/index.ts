@@ -220,3 +220,136 @@ export type ListSharedWithMeResponse = {
   items: Array<SharedTaskPointer & { task?: Task }>;
   nextToken?: string;
 };
+
+
+// ----------------------------------------------------------------------
+// Phase 8: Today dashboard
+
+export type TodayTaskSource = "owned" | "shared";
+
+export type TodayTask = Task & {
+  source: TodayTaskSource;
+  sharedMeta?: {
+    ownerSub: string;
+    rootTaskId: string;
+    mode: ShareMode;
+  };
+};
+
+export type TodayProjectHealthIssue = {
+  project: TodayTask;
+  issues: Array<"noNext" | "onlySomeday" | "stalledWaiting">;
+  nextActions: number;
+  stalledWaiting: number;
+  openActions: number;
+};
+
+export type TodayResponse = {
+  generatedAt: string;
+  includeShared: boolean;
+  overdue: TodayTask[];
+  dueToday: TodayTask[];
+  waiting: TodayTask[];
+  recommended: TodayTask[];
+  projectHealth: TodayProjectHealthIssue[];
+};
+
+// ----------------------------------------------------------------------
+// Phase 9: Review dashboard
+
+export type ReviewMetricKey =
+  | "inbox"
+  | "projectsWithoutNext"
+  | "waitingFollowups"
+  | "staleTasks"
+  | "oldSomeday"
+  | "overdueScheduled";
+
+export type ReviewCounts = {
+  inboxCount: number;
+  projectsWithoutNext: number;
+  waitingFollowups: number;
+  staleTasks: number;
+  oldSomeday: number;
+  overdueScheduled: number;
+};
+
+export type ReviewTaskBuckets = {
+  inbox: TodayTask[];
+  waitingFollowups: TodayTask[];
+  staleTasks: TodayTask[];
+  oldSomeday: TodayTask[];
+  overdueScheduled: TodayTask[];
+};
+
+export type ReviewResponse = ReviewCounts & {
+  generatedAt: string;
+  includeShared: boolean;
+  buckets: ReviewTaskBuckets;
+  projectsWithoutNextItems: TodayProjectHealthIssue[];
+};
+
+
+
+// ----------------------------------------------------------------------
+// Phase 10: Insights and guided actions
+
+export type InsightSuggestionType =
+  | "promoteToNext"
+  | "projectMissingNextAction"
+  | "waitingFollowUp"
+  | "missingContext"
+  | "missingEffort"
+  | "scheduledWithoutDueDate"
+  | "staleTask"
+  | "oldSomeday";
+
+export type InsightReasonCode =
+  | "inbox_actionable"
+  | "project_no_next"
+  | "waiting_stale"
+  | "context_missing"
+  | "effort_missing"
+  | "scheduled_no_due_date"
+  | "task_stale"
+  | "someday_old";
+
+export type InsightRecommendedAction =
+  | "set_next"
+  | "create_next_action"
+  | "set_waiting_followup"
+  | "add_context"
+  | "add_effort"
+  | "set_due_date"
+  | "open_task";
+
+export type InsightScoreBreakdown = {
+  urgency: number;
+  staleness: number;
+  dueDateRisk: number;
+  projectBlockage: number;
+  missingMetadata: number;
+  waitingFollowupRisk: number;
+  total: number;
+};
+
+export type InsightSuggestion = {
+  id: string;
+  type: InsightSuggestionType;
+  score: number;
+  scoreBreakdown?: InsightScoreBreakdown;
+  taskId?: string;
+  projectId?: string;
+  task?: TodayTask;
+  project?: TodayTask;
+  title: string;
+  reason: string;
+  reasonCode: InsightReasonCode;
+  recommendedAction: InsightRecommendedAction;
+};
+
+export type InsightsResponse = {
+  generatedAt: string;
+  includeShared: boolean;
+  suggestions: InsightSuggestion[];
+};
