@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import type { Task, WorkflowState, EntityType } from "@tm/shared";
 import { useAuth } from "../../auth/AuthContext";
@@ -396,6 +396,7 @@ export default function TasksPage() {
   const [effortValue, setEffortValue] = useState("");
   const [effortUnit, setEffortUnit] = useState<"hours" | "days">("hours");
   const [attrsJson, setAttrsJson] = useState("{}");
+  const [showCreate, setShowCreate] = useState(false);
   const [createEntityType, setCreateEntityType] = useState<EntityType>("action");
   const [createState, setCreateState] = useState<WorkflowState>("inbox");
   const [createContext, setCreateContext] = useState<string>("");
@@ -607,6 +608,12 @@ export default function TasksPage() {
   const canCreate =
     !titleError && !descriptionError && !attrsError && !gtdCreateError && titleTrim.length > 0 && !creating;
 
+  useEffect(() => {
+    if (showCreate) {
+      titleRef.current?.focus();
+    }
+  }, [showCreate]);
+
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!canCreate) return;
@@ -635,6 +642,7 @@ export default function TasksPage() {
     setCreateState("inbox");
     setCreateContext("");
     setCreateWaitingFor("");
+    setShowCreate(false);
   }
 
   function startEdit(t: Task) {
@@ -1789,6 +1797,19 @@ export default function TasksPage() {
         />
       ) : null}
       {!(view === "projects" && focusId) ? (
+        <div style={{ marginTop: 12 }}>
+          {!showCreate ? (
+            <button
+              type="button"
+              className="btn btn-primary"
+              onClick={() => setShowCreate(true)}
+            >
+              New task
+            </button>
+          ) : null}
+        </div>
+      ) : null}      
+      {!(view === "projects" && focusId) && showCreate ? (
       <form onSubmit={onSubmit} className="card" style={{ marginTop: 12, padding: 14 }}>
         <div style={{ fontWeight: 700, marginBottom: 10 }}>Create task</div>
 
@@ -1936,11 +1957,20 @@ export default function TasksPage() {
 
           {gtdCreateError ? <div className="help" style={{ color: "#991b1b" }}>{gtdCreateError}</div> : null}
 
-          <div className="row" style={{ justifyContent: "flex-end" }}>
-            <button className="btn btn-primary" type="submit" disabled={!canCreate}>
-              {creating ? "Creating…" : "Add task"}
-            </button>
-          </div>
+        <div className="row" style={{ justifyContent: "flex-end", gap: 8 }}>
+          <button
+            className="btn btn-secondary"
+            type="button"
+            onClick={() => setShowCreate(false)}
+            disabled={creating}
+          >
+            Cancel
+          </button>
+
+          <button className="btn btn-primary" type="submit" disabled={!canCreate}>
+            {creating ? "Creating…" : "Add task"}
+          </button>
+        </div>
         </div>
       </form>
       ) : null}

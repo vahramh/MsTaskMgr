@@ -268,3 +268,15 @@ code { word-break: break-all; }
   max-width: none;
   box-sizing: border-box;
 }
+
+/* Phase 8: Today smart system */
+.today-task-card {
+  min-width: 0;
+}
+
+.today-project-health-row {
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  padding: 12px;
+  background: #fcfcfd;
+}
