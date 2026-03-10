@@ -1,5 +1,6 @@
 import type { CognitoTokens } from "../auth/tokenStore";
 import type { ErrorResponse } from "@tm/shared";
+import { ensureValidTokens } from "../auth/ensureValidToken";
 
 function mustGetEnv(name: string): string {
   const v = import.meta.env[name];
@@ -63,7 +64,12 @@ export async function apiFetchJson<T>(opts: FetchOpts): Promise<T> {
   const url = joinUrl(apiBase, opts.path) + (qs.toString() ? `?${qs.toString()}` : "");
 
   const headers: Record<string, string> = { "content-type": "application/json" };
-  if (opts.tokens) headers.Authorization = `Bearer ${opts.tokens.id_token}`;
+
+  const validTokens = await ensureValidTokens();
+
+  if (validTokens) {
+    headers.Authorization = `Bearer ${validTokens.id_token}`;
+  }
 
   const r = await fetch(url, {
     method: opts.method ?? "GET",
@@ -81,7 +87,12 @@ export async function apiFetchVoid(opts: FetchOpts): Promise<void> {
   const url = joinUrl(apiBase, opts.path);
 
   const headers: Record<string, string> = { "content-type": "application/json" };
-  if (opts.tokens) headers.Authorization = `Bearer ${opts.tokens.id_token}`;
+
+  const validTokens = await ensureValidTokens();
+
+  if (validTokens) {
+    headers.Authorization = `Bearer ${validTokens.id_token}`;
+  }
 
   const r = await fetch(url, {
     method: opts.method ?? "GET",

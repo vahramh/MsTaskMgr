@@ -7,7 +7,7 @@ import type { HttpHandlerContext } from "../lib/handler";
 import { createProjectWithInitialAction, createTask } from "../tasks/repo";
 import { log, toErrorInfo } from "../lib/log";
 import { parseJsonBody } from "../lib/request";
-import { validateAttrs, validateDueDate, validateEffort, validatePriority } from "../tasks/validate";
+import { validateAttrs, validateDueDate, validateEffort, validateMinimumDuration, validatePriority } from "../tasks/validate";
 import { isEntityType, isWorkflowState, stateToStatus, validateMergedTask } from "../tasks/gtd";
 
 export const handler = withHttp(async (event: APIGatewayProxyEventV2, ctx: HttpHandlerContext): Promise<APIGatewayProxyResultV2> => {
@@ -33,6 +33,9 @@ export const handler = withHttp(async (event: APIGatewayProxyEventV2, ctx: HttpH
 
   const effortR = validateEffort((body as any).effort);
   if (!effortR.ok) return badRequest(effortR.message, undefined, requestId);
+
+  const minimumDurationR = validateMinimumDuration((body as any).minimumDuration);
+  if (!minimumDurationR.ok) return badRequest(minimumDurationR.message, undefined, requestId);
 
   const attrsR = validateAttrs((body as any).attrs);
   if (!attrsR.ok) return badRequest(attrsR.message, undefined, requestId);
@@ -88,6 +91,7 @@ export const handler = withHttp(async (event: APIGatewayProxyEventV2, ctx: HttpH
     dueDate: dueDateR.value,
     priority: priorityR.value,
     effort: effortR.value,
+    minimumDuration: minimumDurationR.value,
     attrs: attrsR.value,
   };
 

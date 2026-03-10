@@ -1,4 +1,4 @@
-import type { EffortEstimate, TaskPriority, TodayProjectHealthIssue, TodayTask } from "@tm/shared";
+import type { DurationEstimate, EffortEstimate, TaskPriority, TodayProjectHealthIssue, TodayTask } from "@tm/shared";
 import { buildChildrenMap, collectDescendants } from "./hierarchy";
 
 export const TODAY_CONSTANTS = {
@@ -67,6 +67,13 @@ export function effortToMinutes(effort?: EffortEstimate): number | null {
   return Math.round(effort.value * 8 * 60);
 }
 
+export function minimumDurationToMinutes(minimumDuration?: DurationEstimate): number | null {
+  if (!minimumDuration) return null;
+  if (!Number.isFinite(minimumDuration.value) || minimumDuration.value <= 0) return null;
+  if (minimumDuration.unit === "hours") return Math.round(minimumDuration.value * 60);
+  return Math.round(minimumDuration.value);
+}
+
 function effortScore(task: TodayTask): number {
   const minutes = effortToMinutes(task.effort);
   if (minutes === null) return 0;
@@ -75,6 +82,28 @@ function effortScore(task: TodayTask): number {
   if (minutes <= 180) return 0;
   if (minutes <= 480) return -10;
   return -22;
+}
+
+function minimumDurationScore(task: TodayTask): number {
+  const minutes = minimumDurationToMinutes(task.minimumDuration);
+  if (minutes === null) return 0;
+  if (minutes <= 15) return 10;
+  if (minutes <= 30) return 18;
+  if (minutes <= 60) return 24;
+  if (minutes <= 90) return 12;
+  if (minutes <= 120) return 0;
+  if (minutes <= 180) return -10;
+  return -20;
+}
+
+function planningPenalty(task: TodayTask): number {
+  const effortMinutes = effortToMinutes(task.effort);
+  const blockMinutes = minimumDurationToMinutes(task.minimumDuration);
+  if (effortMinutes === null || blockMinutes !== null) return 0;
+  if (effortMinutes >= 8 * 60) return -14;
+  if (effortMinutes >= 4 * 60) return -10;
+  if (effortMinutes >= 2 * 60) return -6;
+  return 0;
 }
 
 function contextScore(task: TodayTask): number {
@@ -102,7 +131,16 @@ function workflowScore(task: TodayTask): number {
 }
 
 export function scoreTask(task: TodayTask, now: Date): number {
-  return priorityScore(task) + dueScore(task, now) + stalenessScore(task, now) + workflowScore(task) + effortScore(task) + contextScore(task);
+  return (
+    priorityScore(task) +
+    dueScore(task, now) +
+    stalenessScore(task, now) +
+    workflowScore(task) +
+    effortScore(task) +
+    minimumDurationScore(task) +
+    planningPenalty(task) +
+    contextScore(task)
+  );
 }
 
 export function rankTasks(tasks: TodayTask[], now: Date): TodayTask[] {
@@ -129,7 +167,6 @@ export function isOverdue(task: TodayTask, now: Date): boolean {
   if (!task.dueDate) return false;
   return daysFromToday(task.dueDate, now) < 0;
 }
-
 
 export function buildProjectHealth(tasks: TodayTask[], now: Date): TodayProjectHealthIssue[] {
   const childrenMap = buildChildrenMap(tasks);

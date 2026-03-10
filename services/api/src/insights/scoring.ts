@@ -8,9 +8,10 @@ import type {
 } from "@tm/shared";
 import { isOldSomeday, isStaleTask } from "../review/scoring";
 import { buildChildrenMap, collectDescendants, taskRefKey } from "../today/hierarchy";
-import { daysFromToday, isWaitingFollowUp } from "../today/scoring";
+import { daysFromToday, effortToMinutes, isWaitingFollowUp, minimumDurationToMinutes } from "../today/scoring";
 
 const MAX_SUGGESTIONS = 24;
+const DEFER_COUNT_ATTR = "_egsDeferCount";
 
 function ageDays(task: TodayTask, now: Date): number {
   const updated = new Date(task.updatedAt || task.createdAt);
@@ -45,6 +46,11 @@ function missingMetadataScore(task: TodayTask): number {
 
 function actionableInbox(task: TodayTask): boolean {
   return task.state === "inbox" && task.entityType !== "project" && !task.parentTaskId;
+}
+
+function getDeferCount(task: TodayTask): number {
+  const raw = task.attrs?.[DEFER_COUNT_ATTR];
+  return typeof raw === "number" && Number.isFinite(raw) && raw > 0 ? Math.floor(raw) : 0;
 }
 
 function makeSuggestion(args: {
@@ -99,6 +105,9 @@ export function buildInsightsResponse(tasks: TodayTask[], now: Date, includeShar
     const stale = stalenessScore(task, now);
     const dueRisk = urgencyFromDueDate(task, now);
     const metadata = missingMetadataScore(task);
+    const effortMinutes = effortToMinutes(task.effort);
+    const minimumDurationMinutes = minimumDurationToMinutes(task.minimumDuration);
+    const deferCount = getDeferCount(task);
 
     if (actionableInbox(task)) {
       suggestions.push(makeSuggestion({
@@ -153,6 +162,35 @@ export function buildInsightsResponse(tasks: TodayTask[], now: Date, includeShar
         urgency: task.state === "next" ? 8 : 0,
         dueDateRisk: dueRisk,
         missingMetadata: 18,
+      }));
+    }
+
+    if (task.state !== "someday" && task.state !== "reference" && task.state !== "completed" && !task.minimumDuration && effortMinutes !== null && effortMinutes >= 120) {
+      suggestions.push(makeSuggestion({
+        type: "missingMinimumDuration",
+        task,
+        title: `Add minimum focus block to “${task.title}”`,
+        reason: "This task has a substantial effort estimate but no minimum uninterrupted block, so planning windows stay fuzzy.",
+        reasonCode: "minimum_duration_missing",
+        recommendedAction: "add_minimum_duration",
+        urgency: task.state === "next" ? 10 : 4,
+        dueDateRisk: dueRisk,
+        missingMetadata: 22,
+      }));
+    }
+
+    if (deferCount >= 2 && (minimumDurationMinutes !== null ? minimumDurationMinutes >= 90 : (effortMinutes ?? 0) >= 180)) {
+      suggestions.push(makeSuggestion({
+        type: "repeatedDeferredLargeBlock",
+        task,
+        title: `Break down or re-plan “${task.title}”`,
+        reason: `This task has been deferred ${deferCount} time${deferCount === 1 ? "" : "s"} and appears to require a larger focus block than your current execution windows.`,
+        reasonCode: "deferred_large_block",
+        recommendedAction: task.minimumDuration ? "open_task" : "add_minimum_duration",
+        urgency: 8,
+        dueDateRisk: dueRisk,
+        staleness: stale,
+        missingMetadata: task.minimumDuration ? 6 : 18,
       }));
     }
 
@@ -212,6 +250,21 @@ export function buildInsightsResponse(tasks: TodayTask[], now: Date, includeShar
         recommendedAction: "create_next_action",
         projectBlockage: openActions.length ? 30 : 22,
         waitingFollowupRisk: stalledWaiting ? Math.min(18, stalledWaiting * 6) : 0,
+        staleness: stalenessScore(project, now),
+      }));
+    }
+
+    const nextWithoutMinimumDuration = nextActions.filter((task) => !task.minimumDuration);
+    if (nextWithoutMinimumDuration.length > 0) {
+      suggestions.push(makeSuggestion({
+        type: "projectNextMissingMinimumDuration",
+        project,
+        title: `Project “${project.title}” has Next actions without focus blocks`,
+        reason: `${nextWithoutMinimumDuration.length} Next action${nextWithoutMinimumDuration.length === 1 ? " is" : "s are"} missing minimum focus-block estimates, which weakens execution planning.`,
+        reasonCode: "project_next_missing_minimum_duration",
+        recommendedAction: "open_task",
+        projectBlockage: Math.min(26, 8 + nextWithoutMinimumDuration.length * 6),
+        missingMetadata: Math.min(20, nextWithoutMinimumDuration.length * 5),
         staleness: stalenessScore(project, now),
       }));
     }

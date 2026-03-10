@@ -78,6 +78,7 @@ function makeTempTask(req: CreateTaskRequest): Task {
     dueDate: req.dueDate,
     priority: req.priority,
     effort: req.effort,
+    minimumDuration: req.minimumDuration,
     attrs: req.attrs,
     status: "OPEN",
     // Phase 4 (GTD)
@@ -235,6 +236,8 @@ export function useTasks(tokens: CognitoTokens | null) {
           partial.priority === undefined ? prev.priority : nullToUndefined(partial.priority),
         effort:
           partial.effort === undefined ? prev.effort : nullToUndefined(partial.effort),
+        minimumDuration:
+          partial.minimumDuration === undefined ? prev.minimumDuration : nullToUndefined(partial.minimumDuration),
         attrs:
           partial.attrs === undefined ? prev.attrs : nullToUndefined(partial.attrs),
 

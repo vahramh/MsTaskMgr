@@ -1,13 +1,14 @@
 import type { APIGatewayProxyEventV2, APIGatewayProxyResultV2 } from "aws-lambda";
 import { randomUUID } from "node:crypto";
-import type { CreateSubtaskRequest, CreateSubtaskResponse, Task } from "@tm/shared";
+import type { CreateSubtaskRequest, CreateSubtaskResponse, EntityType, Task, WorkflowState } from "@tm/shared";
 import { created, badRequest, unauthorized, internalError, conflict } from "../lib/http";
 import { withHttp } from "../lib/handler";
 import type { HttpHandlerContext } from "../lib/handler";
 import { createSubtask } from "../tasks/repo";
 import { log, toErrorInfo } from "../lib/log";
 import { parseJsonBody } from "../lib/request";
-import { validateAttrs, validateDueDate, validateEffort, validatePriority } from "../tasks/validate";
+import { validateAttrs, validateDueDate, validateEffort, validateMinimumDuration, validatePriority } from "../tasks/validate";
+import { isEntityType, isWorkflowState, stateToStatus, validateMergedTask } from "../tasks/gtd";
 
 function isUuidV4(v: string): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(v);
@@ -33,8 +34,9 @@ export const handler = withHttp(async (
 
   if (!title) return badRequest("title is required", undefined, requestId);
   if (title.length > 200) return badRequest("title too long (max 200 chars)", undefined, requestId);
-  if (description && description.length > 2000)
+  if (description && description.length > 2000) {
     return badRequest("description too long (max 2000 chars)", undefined, requestId);
+  }
 
   const dueDateR = validateDueDate(body.dueDate);
   if (!dueDateR.ok) return badRequest(dueDateR.message, undefined, requestId);
@@ -45,8 +47,37 @@ export const handler = withHttp(async (
   const effortR = validateEffort((body as any).effort);
   if (!effortR.ok) return badRequest(effortR.message, undefined, requestId);
 
+  const minimumDurationR = validateMinimumDuration((body as any).minimumDuration);
+  if (!minimumDurationR.ok) return badRequest(minimumDurationR.message, undefined, requestId);
+
   const attrsR = validateAttrs((body as any).attrs);
   if (!attrsR.ok) return badRequest(attrsR.message, undefined, requestId);
+
+  let entityType: EntityType = "action";
+  if ((body as any).entityType !== undefined) {
+    const v = (body as any).entityType;
+    if (!isEntityType(v)) return badRequest("entityType must be 'project' or 'action'", undefined, requestId);
+    entityType = v as EntityType;
+  }
+
+  let state: WorkflowState | undefined;
+  if ((body as any).state !== undefined) {
+    const v = (body as any).state;
+    if (!isWorkflowState(v)) return badRequest("state is invalid", undefined, requestId);
+    state = v as WorkflowState;
+  } else {
+    state = dueDateR.value ? "scheduled" : "inbox";
+  }
+
+  const context = (body as any).context;
+  if (context !== undefined && context !== null && typeof context !== "string") {
+    return badRequest("context must be a string or null", undefined, requestId);
+  }
+
+  const waitingFor = (body as any).waitingFor;
+  if (waitingFor !== undefined && waitingFor !== null && typeof waitingFor !== "string") {
+    return badRequest("waitingFor must be a string or null", undefined, requestId);
+  }
 
   const now = new Date().toISOString();
   const task: Task = {
@@ -54,15 +85,24 @@ export const handler = withHttp(async (
     parentTaskId,
     title,
     description,
-    status: "OPEN",
+    status: stateToStatus(state),
+    schemaVersion: 2,
+    entityType,
+    state,
+    context: typeof context === "string" ? context : undefined,
+    waitingFor: typeof waitingFor === "string" ? waitingFor : undefined,
     createdAt: now,
     updatedAt: now,
     rev: 0,
     dueDate: dueDateR.value,
     priority: priorityR.value,
     effort: effortR.value,
+    minimumDuration: minimumDurationR.value,
     attrs: attrsR.value,
   };
+
+  const vr = validateMergedTask(task);
+  if (!vr.ok) return badRequest(vr.message, undefined, requestId);
 
   try {
     const createdTask = await createSubtask(sub, parentTaskId, task);
@@ -77,7 +117,6 @@ export const handler = withHttp(async (
       );
     }
     if (e?.name === "TransactionCanceledException") {
-      // Most likely: duplicate PK/SK (should be extremely rare with UUID), or lookup/task already exists.
       return conflict("Conflict", undefined, requestId);
     }
     log("error", "subtasks.create_failed", { requestId, sub, parentTaskId, error: toErrorInfo(e) });

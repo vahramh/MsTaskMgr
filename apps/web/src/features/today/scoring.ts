@@ -1,4 +1,4 @@
-import type { EffortEstimate, TodayProjectHealthIssue, TodayTask } from "@tm/shared";
+import type { DurationEstimate, EffortEstimate, TodayProjectHealthIssue, TodayTask } from "@tm/shared";
 
 export type { TodayProjectHealthIssue as ProjectHealthIssue, TodayTask };
 export type TodayFilter = "all" | "quick" | "deep" | "dueSoon";
@@ -8,6 +8,13 @@ export function effortToMinutes(effort?: EffortEstimate): number | null {
   if (!Number.isFinite(effort.value) || effort.value <= 0) return null;
   if (effort.unit === "hours") return Math.round(effort.value * 60);
   return Math.round(effort.value * 8 * 60);
+}
+
+export function minimumDurationToMinutes(minimumDuration?: DurationEstimate): number | null {
+  if (!minimumDuration) return null;
+  if (!Number.isFinite(minimumDuration.value) || minimumDuration.value <= 0) return null;
+  if (minimumDuration.unit === "hours") return Math.round(minimumDuration.value * 60);
+  return Math.round(minimumDuration.value);
 }
 
 function startOfDay(d: Date): Date {
@@ -41,12 +48,12 @@ export function isDueSoon(task: TodayTask, now: Date): boolean {
 }
 
 export function isQuickWin(task: TodayTask): boolean {
-  const minutes = effortToMinutes(task.effort);
-  return minutes !== null && minutes <= 15;
+  const minutes = minimumDurationToMinutes(task.minimumDuration) ?? effortToMinutes(task.effort);
+  return minutes !== null && minutes <= 30;
 }
 
 export function isDeepWork(task: TodayTask): boolean {
-  const minutes = effortToMinutes(task.effort);
+  const minutes = minimumDurationToMinutes(task.minimumDuration) ?? effortToMinutes(task.effort);
   return minutes !== null && minutes > 60;
 }
 

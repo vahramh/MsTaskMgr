@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import type { ReviewMetricKey, ReviewResponse, TodayProjectHealthIssue, TodayTask } from "@tm/shared";
 import { useAuth } from "../../auth/AuthContext";
@@ -59,12 +59,39 @@ function formatDueDate(dueDate?: string): string | null {
   try { return new Date(dueDate).toLocaleDateString(); } catch { return dueDate; }
 }
 
-function TaskRow({ task, onOpenProject }: { task: TodayTask; onOpenProject: (task: TodayTask) => void }) {
+function taskPath(task: TodayTask): string {
+
+  // Open real projects in project workspace
+  if (task.entityType === "project" && !task.parentTaskId) {
+    return `/app/tasks?view=projects&focus=${encodeURIComponent(task.taskId)}&pview=all&scrollTo=${encodeURIComponent(task.taskId)}&edit=${encodeURIComponent(task.taskId)}`;
+  }
+
+  // Otherwise open in normal task list view
+  const stateView = task.state ?? "inbox";
+
+  return `/app/tasks?view=${encodeURIComponent(stateView)}&scrollTo=${encodeURIComponent(task.taskId)}&edit=${encodeURIComponent(task.taskId)}`;
+}
+
+function cardClickProps(onOpen: () => void) {
+  return {
+    role: "button" as const,
+    tabIndex: 0,
+    onClick: onOpen,
+    onKeyDown: (e: React.KeyboardEvent<HTMLDivElement>) => {
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        onOpen();
+      }
+    },
+  };
+}
+
+function TaskRow({ task, onOpenTask }: { task: TodayTask; onOpenTask: (task: TodayTask) => void }) {
   const minutes = effortToMinutes(task.effort);
   const due = formatDueDate(task.dueDate);
   const hygiene = getHygieneSignals(task, new Date());
   return (
-    <div className="card" style={{ padding: 14 }}>
+    <div className="card" style={{ padding: 14, cursor: "pointer" }} {...cardClickProps(() => onOpenTask(task))}>
       <div className="row space-between" style={{ alignItems: "flex-start", gap: 10 }}>
         <div style={{ minWidth: 0, flex: 1 }}>
           <div style={{ fontWeight: 700, display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
@@ -85,7 +112,7 @@ function TaskRow({ task, onOpenProject }: { task: TodayTask; onOpenProject: (tas
             </div>
           ) : null}
         </div>
-        <button type="button" className="btn btn-secondary btn-compact" onClick={() => onOpenProject(task)}>Open in Tasks</button>
+        <button type="button" className="btn btn-secondary btn-compact" onClick={(e) => { e.stopPropagation(); onOpenTask(task); }}>Open in Tasks</button>
       </div>
     </div>
   );
@@ -93,7 +120,7 @@ function TaskRow({ task, onOpenProject }: { task: TodayTask; onOpenProject: (tas
 
 function ProjectIssueRow({ item, onOpenProject }: { item: TodayProjectHealthIssue; onOpenProject: (task: TodayTask) => void }) {
   return (
-    <div className="card" style={{ padding: 14 }}>
+    <div className="card" style={{ padding: 14, cursor: "pointer" }} {...cardClickProps(() => onOpenProject(item.project))}>
       <div className="row space-between" style={{ gap: 10, alignItems: "flex-start" }}>
         <div>
           <div style={{ fontWeight: 700 }}>{item.project.title}</div>
@@ -104,7 +131,7 @@ function ProjectIssueRow({ item, onOpenProject }: { item: TodayProjectHealthIssu
             {item.issues.map((issue) => <span key={issue} className="pill">{issue === "noNext" ? "No next action" : issue === "onlySomeday" ? "Only someday actions" : "Stalled waiting"}</span>)}
           </div>
         </div>
-        <button type="button" className="btn btn-secondary btn-compact" onClick={() => onOpenProject(item.project)}>Open project</button>
+        <button type="button" className="btn btn-secondary btn-compact" onClick={(e) => { e.stopPropagation(); onOpenProject(item.project); }}>Open project</button>
       </div>
     </div>
   );
@@ -213,7 +240,11 @@ export default function ReviewPage() {
 
   const openProject = (task: TodayTask) => {
     const projectId = task.entityType === "project" && !task.parentTaskId ? task.taskId : (task.sharedMeta?.rootTaskId ?? task.parentTaskId ?? task.taskId);
-    navigate(`/app/tasks?view=projects&focus=${encodeURIComponent(projectId)}&pview=all&scrollTo=${encodeURIComponent(projectId)}`);
+    navigate(`/app/tasks?view=projects&focus=${encodeURIComponent(projectId)}&pview=all&scrollTo=${encodeURIComponent(projectId)}&edit=${encodeURIComponent(projectId)}`);
+  };
+
+  const openTask = (task: TodayTask) => {
+    navigate(taskPath(task));
   };
 
   return (
@@ -295,7 +326,7 @@ export default function ReviewPage() {
               ) : detailPane?.type === "tasks" ? (
                 detailPane.items.length ? (
                   <div style={{ display: "grid", gap: 10 }}>
-                    {detailPane.items.map((task) => <TaskRow key={`${task.source}-${task.taskId}`} task={task} onOpenProject={openProject} />)}
+                    {detailPane.items.map((task) => <TaskRow key={`${task.source}-${task.taskId}`} task={task} onOpenTask={openTask} />)}
                   </div>
                 ) : <div className="help">No items in this bucket.</div>
               ) : null}

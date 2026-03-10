@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useSpeechToText } from "../../hooks/useSpeechToText";
 import { useSearchParams } from "react-router-dom";
 import { getHygieneSignals } from "./hygiene";
 import type { Task, WorkflowState, EntityType } from "@tm/shared";
@@ -49,6 +50,25 @@ function formatTime(iso: string): string {
     return new Date(iso).toLocaleString();
   } catch {
     return iso;
+  }
+}
+
+function speechErrorLabel(error: string | null): string {
+  switch (error) {
+    case "not-allowed":
+      return "Microphone permission was denied.";
+    case "audio-capture":
+      return "No microphone was found.";
+    case "no-speech":
+      return "No speech was detected.";
+    case "network":
+      return "Speech recognition network error.";
+    case "service-not-allowed":
+      return "Speech recognition is not allowed on this device/browser.";
+    case "language-not-supported":
+      return "Speech language is not supported on this device/browser.";
+    default:
+      return error ? `Voice input failed: ${error}` : "";
   }
 }
 
@@ -163,6 +183,8 @@ type Editor = {
   priority: string;
   effortValue: string;
   effortUnit: "hours" | "days";
+  minimumDurationValue: string;
+  minimumDurationUnit: "minutes" | "hours";
   attrsJson: string;
   // Phase 5 (GTD UX)
   entityType: EntityType;
@@ -261,6 +283,293 @@ async function promptDueDate(current?: string): Promise<string | null> {
   return t;
 }
 
+function formatDateOnlyLocal(d: Date): string {
+  const year = d.getFullYear();
+  const month = `${d.getMonth() + 1}`.padStart(2, "0");
+  const day = `${d.getDate()}`.padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function formatTimeLocal(d: Date): string {
+  const hours = `${d.getHours()}`.padStart(2, "0");
+  const minutes = `${d.getMinutes()}`.padStart(2, "0");
+  return `${hours}:${minutes}`;
+}
+
+function addDaysLocal(base: Date, days: number): Date {
+  const d = new Date(base);
+  d.setDate(d.getDate() + days);
+  return d;
+}
+
+function startOfLocalDay(base: Date): Date {
+  return new Date(base.getFullYear(), base.getMonth(), base.getDate(), 0, 0, 0, 0);
+}
+
+function weekdayIndex(name: string): number | null {
+  const map: Record<string, number> = {
+    sunday: 0,
+    monday: 1,
+    tuesday: 2,
+    wednesday: 3,
+    thursday: 4,
+    friday: 5,
+    saturday: 6,
+  };
+  return map[name.toLowerCase()] ?? null;
+}
+
+function nextWeekday(base: Date, target: number, includeThisWeek = true): Date {
+  const result = startOfLocalDay(base);
+  const current = result.getDay();
+  let delta = target - current;
+
+  if (includeThisWeek) {
+    if (delta < 0) delta += 7;
+  } else {
+    if (delta <= 0) delta += 7;
+  }
+
+  result.setDate(result.getDate() + delta);
+  return result;
+}
+
+function parseSpokenTime(raw: string): { hours: number; minutes: number } | null {
+  const text = raw.trim().toLowerCase();
+
+  if (text === "noon") return { hours: 12, minutes: 0 };
+  if (text === "midday") return { hours: 12, minutes: 0 };
+  if (text === "midnight") return { hours: 0, minutes: 0 };
+
+  let m = text.match(/^(\d{1,2})(?::(\d{2}))?\s*(am|pm)$/i);
+  if (m) {
+    let hours = parseInt(m[1], 10);
+    const minutes = m[2] ? parseInt(m[2], 10) : 0;
+    const meridiem = m[3].toLowerCase();
+
+    if (hours === 12) hours = 0;
+    if (meridiem === "pm") hours += 12;
+
+    if (hours >= 0 && hours <= 23 && minutes >= 0 && minutes <= 59) {
+      return { hours, minutes };
+    }
+  }
+
+  m = text.match(/^(\d{1,2}):(\d{2})$/);
+  if (m) {
+    const hours = parseInt(m[1], 10);
+    const minutes = parseInt(m[2], 10);
+    if (hours >= 0 && hours <= 23 && minutes >= 0 && minutes <= 59) {
+      return { hours, minutes };
+    }
+  }
+
+  m = text.match(/^(\d{1,2})\s*o'?clock$/i);
+  if (m) {
+    const hours = parseInt(m[1], 10);
+    if (hours >= 0 && hours <= 23) {
+      return { hours, minutes: 0 };
+    }
+  }
+
+  return null;
+}
+
+function applyTimeToDate(base: Date, time: { hours: number; minutes: number }): Date {
+  const d = new Date(base);
+  d.setHours(time.hours, time.minutes, 0, 0);
+  return d;
+}
+
+function normaliseWhitespace(text: string): string {
+  return text
+    .replace(/\s{2,}/g, " ")
+    .replace(/\s+([,.;:!?])/g, "$1")
+    .trim();
+}
+
+type ParsedVoiceCapture = {
+  cleanTitle: string;
+  dueDate?: string;
+  dueTime?: string;
+  priority?: 1 | 2 | 3 | 4;
+  state?: "waiting" | "scheduled" | "next";
+  waitingFor?: string;
+};
+
+function parseVoiceTaskCapture(raw: string, now = new Date()): ParsedVoiceCapture {
+  let text = normaliseWhitespace(raw);
+  const result: ParsedVoiceCapture = { cleanTitle: text };
+
+  // --------------------
+  // PRIORITY
+  // --------------------
+  const priorityPatterns: Array<[RegExp, 1 | 2 | 3 | 4]> = [
+    [/\bpriority\s+1\b/gi, 1],
+    [/\bpriority\s+one\b/gi, 1],
+    [/\bp1\b/gi, 1],
+    [/\burgent\b/gi, 1],
+    [/\bhighest priority\b/gi, 1],
+    [/\bhigh priority\b/gi, 1],
+
+    [/\bpriority\s+2\b/gi, 2],
+    [/\bpriority\s+two\b/gi, 2],
+    [/\bp2\b/gi, 2],
+
+    [/\bpriority\s+3\b/gi, 3],
+    [/\bpriority\s+three\b/gi, 3],
+    [/\bp3\b/gi, 3],
+    [/\bmedium priority\b/gi, 3],
+
+    [/\bpriority\s+4\b/gi, 4],
+    [/\bpriority\s+four\b/gi, 4],
+    [/\bp4\b/gi, 4],
+    [/\blow priority\b/gi, 4],
+  ];
+
+  for (const [pattern, value] of priorityPatterns) {
+    if (pattern.test(text)) {
+      result.priority = value;
+      text = text.replace(pattern, " ");
+      break;
+    }
+  }
+
+  // --------------------
+  // DATE PHRASES
+  // --------------------
+  let resolvedDate: Date | null = null;
+
+  const dateResolvers: Array<[RegExp, (m: RegExpMatchArray) => Date | null]> = [
+    [/\bday after tomorrow\b/i, () => addDaysLocal(now, 2)],
+    [/\btomorrow\b/i, () => addDaysLocal(now, 1)],
+    [/\btoday\b/i, () => startOfLocalDay(now)],
+    [/\bnext week\b/i, () => addDaysLocal(now, 7)],
+    [/\bin\s+(\d+)\s+days?\b/i, (m) => addDaysLocal(now, parseInt(m[1], 10))],
+    [/\bin\s+(\d+)\s+weeks?\b/i, (m) => addDaysLocal(now, parseInt(m[1], 10) * 7)],
+    [
+      /\bthis\s+(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/i,
+      (m) => {
+        const idx = weekdayIndex(m[1]);
+        return idx == null ? null : nextWeekday(now, idx, true);
+      },
+    ],
+    [
+      /\bnext\s+(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/i,
+      (m) => {
+        const idx = weekdayIndex(m[1]);
+        return idx == null ? null : nextWeekday(now, idx, false);
+      },
+    ],
+    [
+      /\b(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/i,
+      (m) => {
+        const idx = weekdayIndex(m[1]);
+        return idx == null ? null : nextWeekday(now, idx, true);
+      },
+    ],
+  ];
+
+  for (const [pattern, resolver] of dateResolvers) {
+    const match = text.match(pattern);
+    if (match) {
+      const d = resolver(match);
+      if (d) {
+        resolvedDate = d;
+        text = text.replace(match[0], " ");
+        break;
+      }
+    }
+  }
+
+  // explicit ISO date
+  const isoDateMatch = text.match(/\b(20\d{2}-\d{2}-\d{2})\b/);
+  if (!resolvedDate && isoDateMatch && isValidIsoDateOnly(isoDateMatch[1])) {
+    const [y, m, d] = isoDateMatch[1].split("-").map(Number);
+    resolvedDate = new Date(y, m - 1, d, 0, 0, 0, 0);
+    text = text.replace(isoDateMatch[0], " ");
+  }
+
+  // --------------------
+  // TIME PHRASES
+  // --------------------
+  let resolvedTime: { hours: number; minutes: number } | null = null;
+
+  const timePatterns = [
+    /\bat\s+(\d{1,2}(?::\d{2})?\s*(?:am|pm))\b/i,
+    /\bat\s+(\d{1,2}:\d{2})\b/i,
+    /\bat\s+(noon|midday|midnight)\b/i,
+    /\b(\d{1,2}(?::\d{2})?\s*(?:am|pm))\b/i,
+    /\b(\d{1,2}:\d{2})\b/i,
+    /\b(noon|midday|midnight)\b/i,
+  ];
+
+  for (const pattern of timePatterns) {
+    const match = text.match(pattern);
+    if (match) {
+      const parsed = parseSpokenTime(match[1]);
+      if (parsed) {
+        resolvedTime = parsed;
+        text = text.replace(match[0], " ");
+        break;
+      }
+    }
+  }
+
+  if (resolvedDate) {
+    result.dueDate = formatDateOnlyLocal(resolvedDate);
+    result.state = "scheduled";
+  }
+
+  if (resolvedDate && resolvedTime) {
+    const dateTime = applyTimeToDate(resolvedDate, resolvedTime);
+    result.dueDate = formatDateOnlyLocal(dateTime);
+    result.dueTime = formatTimeLocal(dateTime);
+    result.state = "scheduled";
+  }
+
+  // --------------------
+  // WAITING / STATE HINTS
+  // --------------------
+  const waitingMatch = text.match(/\bwaiting for\s+(.+)$/i);
+  if (waitingMatch) {
+    let who = waitingMatch[1].trim();
+
+    // clean any trailing punctuation
+    who = who.replace(/[.,;:!?]+$/g, "").trim();
+
+    if (who) {
+      result.state = "waiting";
+      result.waitingFor = who;
+      text = text.replace(waitingMatch[0], " ");
+    }
+  } else if (/\bnext action\b/i.test(text)) {
+    result.state = "next";
+    text = text.replace(/\bnext action\b/gi, " ");
+  } else if (/\bscheduled\b/i.test(text)) {
+    result.state = "scheduled";
+    text = text.replace(/\bscheduled\b/gi, " ");
+  }
+
+  // --------------------
+  // CLEAN TITLE
+  // --------------------
+  text = normaliseWhitespace(
+    text
+      .replace(/^[,.;:!?-]+/, "")
+      .replace(/[,.;:!?-]+$/, "")
+  );
+
+  result.cleanTitle = text || raw.trim();
+
+  // If waitingFor accidentally captured only noise, drop it
+  if (result.state === "waiting" && (!result.waitingFor || result.waitingFor.length < 2)) {
+    delete result.waitingFor;
+  }
+
+  return result;
+}
+
 function makeTempSubtask(parentTaskId: string, title: string): Task {
   const now = nowIso();
   return {
@@ -312,6 +621,7 @@ export default function TasksPage() {
   const focusId = searchParams.get("focus") ?? null;
   const focusViewParam = (searchParams.get("pview") ?? "next") as string;
   const scrollToId = searchParams.get("scrollTo") ?? null;
+  const editId = searchParams.get("edit") ?? null;
   const focusView: WorkflowState | "all" = ([
     "all",
     "inbox",
@@ -350,6 +660,40 @@ export default function TasksPage() {
     { key: "completed", label: "Completed" },
     { key: "projects", label: "Projects" },
   ];
+
+  const speech = useSpeechToText({
+    lang: "en-AU",
+    onResult: (text) => {
+      const parsed = parseVoiceTaskCapture(text);
+
+      setTitle((prev) => {
+        const nextTitle = parsed.cleanTitle;
+        return prev.trim() ? `${prev.trim()} ${nextTitle}`.trim() : nextTitle;
+      });
+
+      if (parsed.priority) {
+        setPriority(String(parsed.priority));
+      }
+
+      if (parsed.state === "waiting") {
+        setCreateState("waiting");
+      } else if (parsed.state === "scheduled") {
+        setCreateState((prev) => (prev === "inbox" ? "scheduled" : prev));
+      } else if (parsed.state === "next") {
+        setCreateState((prev) => (prev === "inbox" ? "next" : prev));
+      }
+
+      if (parsed.waitingFor) {
+        setCreateWaitingFor(parsed.waitingFor);
+      }
+
+      if (parsed.dueDate) {
+        setDueDate(parsed.dueDate);
+      }
+
+      window.setTimeout(() => titleRef.current?.focus(), 0);
+    },
+  });
 
   const viewCounts = useMemo(() => {
     const counts: Record<ViewKey, number> = {
@@ -397,6 +741,8 @@ export default function TasksPage() {
   const [priority, setPriority] = useState("");
   const [effortValue, setEffortValue] = useState("");
   const [effortUnit, setEffortUnit] = useState<"hours" | "days">("hours");
+  const [minimumDurationValue, setMinimumDurationValue] = useState("");
+  const [minimumDurationUnit, setMinimumDurationUnit] = useState<"minutes" | "hours">("minutes");
   const [attrsJson, setAttrsJson] = useState("{}");
   const [showCreate, setShowCreate] = useState(false);
   const [createEntityType, setCreateEntityType] = useState<EntityType>("action");
@@ -631,6 +977,7 @@ export default function TasksPage() {
       dueDate: dueDateToSend,
       priority: priority ? (Number(priority) as any) : undefined,
       effort: effortValue ? { unit: effortUnit, value: Number(effortValue) } : undefined,
+      minimumDuration: minimumDurationValue ? { unit: minimumDurationUnit, value: Number(minimumDurationValue) } : undefined,
       attrs: attrsJsonTrim ? (JSON.parse(attrsJsonTrim) as any) : undefined,
     });
     setTitle("");
@@ -639,6 +986,8 @@ export default function TasksPage() {
     setPriority("");
     setEffortValue("");
     setEffortUnit("hours");
+    setMinimumDurationValue("");
+    setMinimumDurationUnit("minutes");
     setAttrsJson("{}");
     setCreateEntityType("action");
     setCreateState("inbox");
@@ -657,6 +1006,8 @@ export default function TasksPage() {
       priority: t.priority ? String(t.priority) : "",
       effortValue: t.effort ? String(t.effort.value) : "",
       effortUnit: (t.effort?.unit ?? "hours") as any,
+      minimumDurationValue: t.minimumDuration ? String(t.minimumDuration.value) : "",
+      minimumDurationUnit: (t.minimumDuration?.unit ?? "minutes") as any,
       attrsJson: safeJsonStringify(t.attrs),
       entityType: deriveEntityType(t),
       state: deriveState(t),
@@ -664,6 +1015,15 @@ export default function TasksPage() {
       waitingFor: t.waitingFor ?? "",
     });
   }
+
+  const clearDeepLinkEdit = useCallback(() => {
+    setSearchParams((prev) => {
+      if (!prev.get("edit")) return prev;
+      const next = new URLSearchParams(prev);
+      next.delete("edit");
+      return next;
+    });
+  }, [setSearchParams]);
 
   const clearAllErrors = useCallback(() => {
     clearError();
@@ -743,6 +1103,26 @@ export default function TasksPage() {
     void loadChildren(focusId);
     setExpandedOn(focusId, true);
   }, [focusId, view, loadChildren, setExpandedOn]);
+
+  React.useEffect(() => {
+    if (!editId) return;
+
+    const direct = items.find((t) => t.taskId === editId);
+    if (direct) {
+      if (editor?.taskId !== direct.taskId) startEdit(direct);
+      clearDeepLinkEdit();
+      return;
+    }
+
+    for (const st of Object.values(subtrees)) {
+      const nested = st.items.find((t) => t.taskId === editId);
+      if (nested) {
+        if (editor?.taskId !== nested.taskId) startEdit(nested);
+        clearDeepLinkEdit();
+        return;
+      }
+    }
+  }, [editId, items, subtrees, editor?.taskId, clearDeepLinkEdit]);
 
   const loadMoreChildren = useCallback(
     async (parentTaskId: string) => {
@@ -869,6 +1249,7 @@ export default function TasksPage() {
         dueDate?: string | null;
         priority?: any | null;
         effort?: any | null;
+        minimumDuration?: any | null;
         attrs?: any | null;
         status?: any;
         // Phase 5 (GTD UX)
@@ -906,6 +1287,7 @@ export default function TasksPage() {
         dueDate: partial.dueDate === undefined ? prev.dueDate : nullToUndefined(partial.dueDate),
         priority: partial.priority === undefined ? prev.priority : nullToUndefined(partial.priority),
         effort: partial.effort === undefined ? prev.effort : nullToUndefined(partial.effort),
+        minimumDuration: partial.minimumDuration === undefined ? prev.minimumDuration : nullToUndefined(partial.minimumDuration),
         attrs: partial.attrs === undefined ? prev.attrs : nullToUndefined(partial.attrs),
         updatedAt: nowIso(),
       };
@@ -1238,8 +1620,8 @@ export default function TasksPage() {
                         opacity: c.taskId.startsWith("temp-") ? 0.7 : 1,
                       }}
                     >
-                      <div className="row space-between" style={{ alignItems: "flex-start" }}>
-                        <div style={{ flex: 1 }}>
+                      <div className="content-actions-row">
+                        <div className="content-actions-main text-wrap">
                           {isEditing ? (
                             <div style={{ display: "grid", gap: 8 }}>
                               <input className="input" value={editor.title} onChange={(e) => setEditor((p) => (p ? { ...p, title: e.target.value } : p))} />
@@ -1334,6 +1716,26 @@ export default function TasksPage() {
                                     </select>
                                   </div>
                                 </div>
+                                <div style={{ minWidth: 260 }}>
+                                  <div className="label">Minimum focus block</div>
+                                  <div className="row" style={{ gap: 8 }}>
+                                    <input
+                                      className="input"
+                                      style={{ width: 120 }}
+                                      inputMode="decimal"
+                                      value={editor.minimumDurationValue}
+                                      onChange={(e) => setEditor((p) => (p ? { ...p, minimumDurationValue: e.target.value } : p))}
+                                    />
+                                    <select
+                                      className="input"
+                                      value={editor.minimumDurationUnit}
+                                      onChange={(e) => setEditor((p) => (p ? { ...p, minimumDurationUnit: e.target.value as any } : p))}
+                                    >
+                                      <option value="minutes">minutes</option>
+                                      <option value="hours">hours</option>
+                                    </select>
+                                  </div>
+                                </div>
                               </div>
                               <div>
                                 <div className="label">Attributes (JSON)</div>
@@ -1364,6 +1766,7 @@ export default function TasksPage() {
                                     const due = editor.dueDate.trim();
                                     const pr = editor.priority.trim();
                                     const ev = editor.effortValue.trim();
+                                    const md = editor.minimumDurationValue.trim();
 
                                     await patchNode(c, {
                                       title: newTitle,
@@ -1385,6 +1788,7 @@ export default function TasksPage() {
 
                                       priority: pr ? (Number(pr) as any) : null,
                                       effort: ev ? { unit: editor.effortUnit, value: Number(ev) } : null,
+                                      minimumDuration: md ? { unit: editor.minimumDurationUnit, value: Number(md) } : null,
                                       attrs: attrsTrim ? attrs : null,
                                     });
                                     setEditor(null);
@@ -1427,6 +1831,7 @@ export default function TasksPage() {
 
                                       {c.priority ? <span className="meta-muted">P{c.priority}</span> : null}
                                       {c.effort ? <span className="meta-muted">Effort {c.effort.value} {c.effort.unit}</span> : null}
+                                      {c.minimumDuration ? <span className="meta-muted">Min block {c.minimumDuration.value} {c.minimumDuration.unit}</span> : null}
                                       {c.taskId.startsWith("temp-") ? <span className="meta-muted">Syncing…</span> : null}
                                     </div>
                                   </div>
@@ -1442,15 +1847,7 @@ export default function TasksPage() {
                           </div>
                         </div>
 
-                        <div
-                          className="row"
-                          style={{
-                            alignItems: "stretch",
-                            flexWrap: "wrap",
-                            gap: 8,
-                            justifyContent: "flex-end",
-                          }}
-                        >
+                        <div className="content-actions-side">
                           {/* Quick GTD actions (always visible, compact) */}
                           {c.status !== "COMPLETED" ? (
                             <>
@@ -1818,15 +2215,54 @@ export default function TasksPage() {
         <div style={{ display: "grid", gap: 10 }}>
           <div>
             <div className="label">Title</div>
-            <input
-              className="input"
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              placeholder="e.g. Call the accountant"
-              ref={titleRef}
-              aria-invalid={Boolean(titleError) || undefined}
-            />
-            {titleError ? <div className="help" style={{ color: "#991b1b" }}>{titleError}</div> : null}
+
+            <div className="speech-input-row">
+              <input
+                className="input"
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                placeholder="e.g. Call the accountant"
+                ref={titleRef}
+                aria-invalid={Boolean(titleError) || undefined}
+              />
+
+              {speech.supported ? (
+                <button
+                  type="button"
+                  className={`btn btn-secondary speech-mic-btn${
+                    speech.state === "listening" ? " is-listening" : ""
+                  }`}
+                  onClick={() => {
+                    if (speech.state === "listening") {
+                      speech.stop();
+                    } else {
+                      speech.reset();
+                      speech.start();
+                    }
+                  }}
+                  aria-label={speech.state === "listening" ? "Stop voice input" : "Start voice input"}
+                  title={speech.state === "listening" ? "Stop voice input" : "Speak task title"}
+                >
+                  {speech.state === "listening" ? "●" : "🎤"}
+                </button>
+              ) : null}
+            </div>
+
+            {speech.supported && speech.state === "listening" ? (
+              <div className="help">Listening… speak the task title.</div>
+            ) : null}
+
+            {speech.supported && speech.error ? (
+              <div className="help" style={{ color: "#991b1b" }}>
+                {speechErrorLabel(speech.error)}
+              </div>
+            ) : null}
+
+            {titleError ? (
+              <div className="help" style={{ color: "#991b1b" }}>
+                {titleError}
+              </div>
+            ) : null}
           </div>
 
           <div>
@@ -1941,6 +2377,24 @@ export default function TasksPage() {
                 </select>
               </div>
             </div>
+
+            <div style={{ minWidth: 260 }}>
+              <div className="label">Minimum focus block</div>
+              <div className="row" style={{ gap: 8 }}>
+                <input
+                  className="input"
+                  style={{ width: 120 }}
+                  inputMode="decimal"
+                  value={minimumDurationValue}
+                  onChange={(e) => setMinimumDurationValue(e.target.value)}
+                  placeholder="e.g. 30"
+                />
+                <select className="input" value={minimumDurationUnit} onChange={(e) => setMinimumDurationUnit(e.target.value as any)}>
+                  <option value="minutes">minutes</option>
+                  <option value="hours">hours</option>
+                </select>
+              </div>
+            </div>
           </div>
 
           <div>
@@ -1987,19 +2441,263 @@ export default function TasksPage() {
                 <div style={{ fontWeight: 900 }}>Project workspace</div>
                 <div className="help">{focusCounts.all} item{focusCounts.all === 1 ? "" : "s"} loaded</div>
               </div>
-              {focusedProject ? (
-                <div style={{ marginTop: 10 }}>
-                  <div style={{ fontWeight: 700 }}>{focusedProject.title}</div>
-                  <div className="help" style={{ marginTop: 4 }}>
-                    {deriveState(focusedProject)} · {deriveEntityType(focusedProject)}
-                    {focusedProject.context ? ` · ${focusedProject.context}` : ""}
-                    {fmtDue(focusedProject.dueDate) ? ` · Due ${fmtDue(focusedProject.dueDate)}` : ""}
+              {focusedProject ? (() => {
+                const focusedPending = pendingFor(focusedProject);
+                const isFocusedEditing = editor?.taskId === focusedProject.taskId;
+                return (
+                  <div style={{ marginTop: 10 }}>
+                    {isFocusedEditing ? (
+                      <div style={{ display: "grid", gap: 8 }}>
+                        <input
+                          className="input"
+                          value={editor.title}
+                          onChange={(e) => setEditor((p) => (p ? { ...p, title: e.target.value } : p))}
+                        />
+                        <textarea
+                          className="input"
+                          rows={3}
+                          value={editor.description}
+                          onChange={(e) => setEditor((p) => (p ? { ...p, description: e.target.value } : p))}
+                        />
+
+                        <div className="row" style={{ gap: 10, flexWrap: "wrap" }}>
+                          <div style={{ minWidth: 180 }}>
+                            <div className="label">Type</div>
+                            <select
+                              className="input"
+                              value={editor.entityType}
+                              onChange={(e) =>
+                                setEditor((p) => (p ? { ...p, entityType: e.target.value as any } : p))
+                              }
+                            >
+                              <option value="action">Action</option>
+                              <option value="project">Project</option>
+                            </select>
+                          </div>
+
+                          <div style={{ minWidth: 200 }}>
+                            <div className="label">State</div>
+                            <select
+                              className="input"
+                              value={editor.state}
+                              onChange={(e) => {
+                                const next = e.target.value as any;
+                                setEditor((p) => {
+                                  if (!p) return p;
+                                  const clearedDue = next === "inbox" ? "" : p.dueDate;
+                                  const clearedWaiting = next === "waiting" ? p.waitingFor : "";
+                                  return { ...p, state: next, dueDate: clearedDue, waitingFor: clearedWaiting };
+                                });
+                              }}
+                            >
+                              <option value="inbox">Inbox</option>
+                              <option value="next">Next</option>
+                              <option value="waiting">Waiting</option>
+                              <option value="scheduled">Scheduled</option>
+                              <option value="someday">Someday</option>
+                              <option value="reference">Reference</option>
+                              <option value="completed">Completed</option>
+                            </select>
+                          </div>
+
+                          <div style={{ minWidth: 240, flex: 1 }}>
+                            <div className="label">Context</div>
+                            <input
+                              className="input"
+                              value={editor.context}
+                              onChange={(e) => setEditor((p) => (p ? { ...p, context: e.target.value } : p))}
+                              placeholder='e.g. "@home"'
+                            />
+                          </div>
+
+                          {editor.state === "waiting" ? (
+                            <div style={{ minWidth: 260, flex: 1 }}>
+                              <div className="label">Waiting for…</div>
+                              <input
+                                className="input"
+                                value={editor.waitingFor}
+                                onChange={(e) => setEditor((p) => (p ? { ...p, waitingFor: e.target.value } : p))}
+                              />
+                            </div>
+                          ) : null}
+                        </div>
+
+                        <div className="row" style={{ gap: 10, flexWrap: "wrap" }}>
+                          <div style={{ minWidth: 200 }}>
+                            <div className="label">Due date</div>
+                            <input
+                              className="input"
+                              type="date"
+                              value={editor.dueDate}
+                              onChange={(e) => setEditor((p) => (p ? { ...p, dueDate: e.target.value } : p))}
+                            />
+                          </div>
+
+                          <div style={{ minWidth: 160 }}>
+                            <div className="label">Priority</div>
+                            <select
+                              className="input"
+                              value={editor.priority}
+                              onChange={(e) => setEditor((p) => (p ? { ...p, priority: e.target.value } : p))}
+                            >
+                              <option value="">—</option>
+                              <option value="1">1</option>
+                              <option value="2">2</option>
+                              <option value="3">3</option>
+                              <option value="4">4</option>
+                              <option value="5">5</option>
+                            </select>
+                          </div>
+
+                          <div style={{ minWidth: 240 }}>
+                            <div className="label">Effort</div>
+                            <div className="row" style={{ gap: 8 }}>
+                              <input
+                                className="input"
+                                style={{ width: 120 }}
+                                inputMode="decimal"
+                                value={editor.effortValue}
+                                onChange={(e) => setEditor((p) => (p ? { ...p, effortValue: e.target.value } : p))}
+                              />
+                              <select
+                                className="input"
+                                value={editor.effortUnit}
+                                onChange={(e) => setEditor((p) => (p ? { ...p, effortUnit: e.target.value as any } : p))}
+                              >
+                                <option value="hours">hours</option>
+                                <option value="days">days</option>
+                              </select>
+                            </div>
+                          </div>
+
+                          <div style={{ minWidth: 260 }}>
+                            <div className="label">Minimum focus block</div>
+                            <div className="row" style={{ gap: 8 }}>
+                              <input
+                                className="input"
+                                style={{ width: 120 }}
+                                inputMode="decimal"
+                                value={editor.minimumDurationValue}
+                                onChange={(e) => setEditor((p) => (p ? { ...p, minimumDurationValue: e.target.value } : p))}
+                              />
+                              <select
+                                className="input"
+                                value={editor.minimumDurationUnit}
+                                onChange={(e) => setEditor((p) => (p ? { ...p, minimumDurationUnit: e.target.value as any } : p))}
+                              >
+                                <option value="minutes">minutes</option>
+                                <option value="hours">hours</option>
+                              </select>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div>
+                          <div className="label">Attributes (JSON)</div>
+                          <textarea
+                            className="input"
+                            rows={4}
+                            value={editor.attrsJson}
+                            onChange={(e) => setEditor((p) => (p ? { ...p, attrsJson: e.target.value } : p))}
+                          />
+                        </div>
+
+                        <div className="row" style={{ justifyContent: "flex-end" }}>
+                          <button
+                            type="button"
+                            className="btn btn-secondary"
+                            onClick={() => setEditor(null)}
+                            disabled={focusedPending}
+                          >
+                            Cancel
+                          </button>
+                          <button
+                            type="button"
+                            className="btn"
+                            disabled={
+                              focusedPending ||
+                              editor.title.trim().length === 0 ||
+                              editor.title.trim().length > 200 ||
+                              (editor.state === "waiting" && editor.waitingFor.trim().length === 0) ||
+                              (editor.state === "scheduled" && editor.dueDate.trim().length === 0)
+                            }
+                            onClick={async () => {
+                              const newTitle = editor.title.trim();
+                              const newDesc = editor.description.trim();
+                              let attrs: any = undefined;
+                              const attrsTrim = editor.attrsJson.trim();
+                              if (attrsTrim) {
+                                try {
+                                  attrs = JSON.parse(attrsTrim);
+                                } catch {
+                                  alert("Attributes must be valid JSON");
+                                  return;
+                                }
+                              }
+
+                              const due = editor.dueDate.trim();
+                              const pr = editor.priority.trim();
+                              const ev = editor.effortValue.trim();
+                              const md = editor.minimumDurationValue.trim();
+
+                              await patchNode(focusedProject, {
+                                title: newTitle,
+                                description: newDesc || undefined,
+                                entityType: editor.entityType,
+                                state: editor.state,
+                                context: editor.context.trim() ? editor.context.trim() : null,
+                                waitingFor:
+                                  editor.state === "waiting"
+                                    ? editor.waitingFor.trim()
+                                      ? editor.waitingFor.trim()
+                                      : null
+                                    : null,
+                                dueDate:
+                                  editor.state === "inbox"
+                                    ? null
+                                    : due
+                                      ? due
+                                      : editor.state === "scheduled"
+                                        ? null
+                                        : null,
+                                priority: pr ? (Number(pr) as any) : null,
+                                effort: ev ? { unit: editor.effortUnit, value: Number(ev) } : null,
+                                minimumDuration: md ? { unit: editor.minimumDurationUnit, value: Number(md) } : null,
+                                attrs: attrsTrim ? attrs : null,
+                              });
+                              setEditor(null);
+                            }}
+                          >
+                            Save
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <>
+                        <div style={{ fontWeight: 700 }}>{focusedProject.title}</div>
+                        <div className="help" style={{ marginTop: 4 }}>
+                          {deriveState(focusedProject)} · {deriveEntityType(focusedProject)}
+                          {focusedProject.context ? ` · ${focusedProject.context}` : ""}
+                          {fmtDue(focusedProject.dueDate) ? ` · Due ${fmtDue(focusedProject.dueDate)}` : ""}
+                        </div>
+                        <div className="row" style={{ gap: 6, flexWrap: "wrap", marginTop: 8 }}>
+                          {getHygieneSignals(focusedProject, new Date()).map((signal) => <span key={signal.key} className="pill" title={signal.label}>{signal.icon} {signal.label}</span>)}
+                        </div>
+                        <div className="row" style={{ gap: 8, flexWrap: "wrap", marginTop: 10 }}>
+                          <button
+                            type="button"
+                            className="btn btn-secondary"
+                            onClick={() => startEdit(focusedProject)}
+                            disabled={focusedPending}
+                          >
+                            Edit
+                          </button>
+                        </div>
+                      </>
+                    )}
                   </div>
-                  <div className="row" style={{ gap: 6, flexWrap: "wrap", marginTop: 8 }}>
-                    {getHygieneSignals(focusedProject, new Date()).map((signal) => <span key={signal.key} className="pill" title={signal.label}>{signal.icon} {signal.label}</span>)}
-                  </div>
-                </div>
-              ) : null}
+                );
+              })() : null}
 
               <div style={{ marginTop: 10 }}>
                 <div className="tabs" role="tablist" aria-label="Project view">
@@ -2078,8 +2776,8 @@ export default function TasksPage() {
                   data-entity={deriveEntityType(t)}
                   style={{ padding: 14, borderLeft: dueTone(t.dueDate).border ? `4px solid ${dueTone(t.dueDate).border}` : undefined }}
                 >
-                  <div className="row space-between" style={{ alignItems: "flex-start" }}>
-                    <div style={{ flex: 1 }}>
+                  <div className="content-actions-row">
+                    <div className="content-actions-main text-wrap">
                       {isEditing ? (
                         <div style={{ display: "grid", gap: 8 }}>
                           <input
@@ -2204,6 +2902,26 @@ export default function TasksPage() {
                                 </select>
                               </div>
                             </div>
+                            <div style={{ minWidth: 260 }}>
+                              <div className="label">Minimum focus block</div>
+                              <div className="row" style={{ gap: 8 }}>
+                                <input
+                                  className="input"
+                                  style={{ width: 120 }}
+                                  inputMode="decimal"
+                                  value={editor.minimumDurationValue}
+                                  onChange={(e) => setEditor((p) => (p ? { ...p, minimumDurationValue: e.target.value } : p))}
+                                />
+                                <select
+                                  className="input"
+                                  value={editor.minimumDurationUnit}
+                                  onChange={(e) => setEditor((p) => (p ? { ...p, minimumDurationUnit: e.target.value as any } : p))}
+                                >
+                                  <option value="minutes">minutes</option>
+                                  <option value="hours">hours</option>
+                                </select>
+                              </div>
+                            </div>
                           </div>
 
                           <div>
@@ -2252,6 +2970,7 @@ export default function TasksPage() {
                                 const due = editor.dueDate.trim();
                                 const pr = editor.priority.trim();
                                 const ev = editor.effortValue.trim();
+                                const md = editor.minimumDurationValue.trim();
 
                                 await patchNode(t, {
                                   title: newTitle,
@@ -2278,6 +2997,7 @@ export default function TasksPage() {
                                           : null,
                                   priority: pr ? (Number(pr) as any) : null,
                                   effort: ev ? { unit: editor.effortUnit, value: Number(ev) } : null,
+                                  minimumDuration: md ? { unit: editor.minimumDurationUnit, value: Number(md) } : null,
                                   attrs: attrsTrim ? attrs : null,
                                 });
                                 setEditor(null);
@@ -2328,6 +3048,7 @@ export default function TasksPage() {
 
                                   {t.priority ? <span className="meta-muted">P{t.priority}</span> : null}
                                   {t.effort ? <span className="meta-muted">Effort {t.effort.value} {t.effort.unit}</span> : null}
+                              {t.minimumDuration ? <span className="meta-muted">Min block {t.minimumDuration.value} {t.minimumDuration.unit}</span> : null}
                                   {hygieneSignals.map((signal) => <span key={signal.key} className="meta-muted" title={signal.label}>{signal.icon} {signal.label}</span>)}
                                   <span className="meta-muted">Updated {formatTime(t.updatedAt)}</span>
                                   {t.taskId.startsWith("temp-") ? <span className="meta-muted">Syncing…</span> : null}
@@ -2353,7 +3074,7 @@ export default function TasksPage() {
                       )}
                     </div>
 
-                    <div className="row" style={{ alignItems: "stretch", flexWrap: "wrap", gap: 8, justifyContent: "flex-end" }}>
+                    <div className="content-actions-side">
                       {/* Quick GTD actions (always visible, compact) */}
                       {t.status !== "COMPLETED" ? (
                         <>

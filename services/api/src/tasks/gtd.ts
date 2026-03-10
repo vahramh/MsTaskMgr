@@ -67,6 +67,7 @@ export function mergeTaskPatch(current: Task, patch: UpdateTaskRequest): Task {
     dueDate: (patch as any).dueDate === undefined ? current.dueDate : ((patch as any).dueDate ?? undefined),
     priority: (patch as any).priority === undefined ? current.priority : ((patch as any).priority ?? undefined),
     effort: (patch as any).effort === undefined ? current.effort : ((patch as any).effort ?? undefined),
+    minimumDuration: (patch as any).minimumDuration === undefined ? current.minimumDuration : ((patch as any).minimumDuration ?? undefined),
     attrs: (patch as any).attrs === undefined ? current.attrs : ((patch as any).attrs ?? undefined),
 
     context: (patch as any).context === undefined ? current.context : ((patch as any).context ?? undefined),
@@ -105,6 +106,15 @@ export function validateMergedTask(task: Task): { ok: true } | { ok: false; mess
   // Phase 4 simplification: projects must be root.
   if (task.entityType === "project" && task.parentTaskId) {
     return { ok: false, message: "Projects must be root items (no parentTaskId)" };
+  }
+
+  if (task.minimumDuration !== undefined) {
+    if (!Number.isFinite(task.minimumDuration.value) || task.minimumDuration.value <= 0) {
+      return { ok: false, message: "minimumDuration.value must be > 0" };
+    }
+    if (task.minimumDuration.unit !== "minutes" && task.minimumDuration.unit !== "hours") {
+      return { ok: false, message: "minimumDuration.unit must be minutes or hours" };
+    }
   }
 
   // Context (simple string).

@@ -1,13 +1,14 @@
 import type { APIGatewayProxyEventV2, APIGatewayProxyResultV2 } from "aws-lambda";
-import type { UpdateSubtaskRequest, UpdateSubtaskResponse, TaskStatus } from "@tm/shared";
+import type { EntityType, TaskStatus, UpdateSubtaskRequest, UpdateSubtaskResponse, WorkflowState } from "@tm/shared";
 import { badRequest, conflict, forbidden, internalError, notFound, ok, unauthorized } from "../lib/http";
 import { withHttp } from "../lib/handler";
 import type { HttpHandlerContext } from "../lib/handler";
 import { parseJsonBody } from "../lib/request";
 import { log, toErrorInfo } from "../lib/log";
-import { updateSubtask } from "../tasks/repo";
+import { getSubtask, updateSubtask } from "../tasks/repo";
 import { getLookup, getSharedPointer } from "../tasks/sharing";
-import { normalizeNullable, validateAttrs, validateDueDate, validateEffort, validatePriority } from "../tasks/validate";
+import { normalizeNullable, validateAttrs, validateDueDate, validateEffort, validateMinimumDuration, validatePriority } from "../tasks/validate";
+import { canTransition, deriveV2Defaults, isEntityType, isWorkflowState, mergeTaskPatch, validateMergedTask } from "../tasks/gtd";
 
 function isUuidV4(v: string): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(v);
@@ -67,16 +68,10 @@ export const handler = withHttp(async (
   }
 
   if (body.description !== undefined) {
-    if (body.description !== null && typeof body.description !== "string")
-      return badRequest("description must be a string", undefined, requestId);
+    if (body.description !== null && typeof body.description !== "string") return badRequest("description must be a string", undefined, requestId);
     const d = typeof body.description === "string" ? body.description.trim() : "";
     if (d.length > 2000) return badRequest("description too long (max 2000 chars)", undefined, requestId);
     patch.description = d || undefined;
-  }
-
-  if (body.status !== undefined) {
-    if (!isStatus(body.status)) return badRequest("status must be OPEN or COMPLETED", undefined, requestId);
-    patch.status = body.status;
   }
 
   if (body.dueDate !== undefined) {
@@ -97,16 +92,51 @@ export const handler = withHttp(async (
     patch.effort = r.value as any;
   }
 
+  if ((body as any).minimumDuration !== undefined) {
+    const r = normalizeNullable((body as any).minimumDuration, validateMinimumDuration, "minimumDuration");
+    if (!r.ok) return badRequest(r.message, undefined, requestId);
+    patch.minimumDuration = r.value as any;
+  }
+
   if ((body as any).attrs !== undefined) {
     const r = normalizeNullable((body as any).attrs, validateAttrs, "attrs");
     if (!r.ok) return badRequest(r.message, undefined, requestId);
     patch.attrs = r.value as any;
   }
 
+  if ((body as any).entityType !== undefined) {
+    const v = (body as any).entityType;
+    if (!isEntityType(v)) return badRequest("entityType must be 'project' or 'action'", undefined, requestId);
+    patch.entityType = v as EntityType;
+  }
+
+  if ((body as any).state !== undefined) {
+    const v = (body as any).state;
+    if (!isWorkflowState(v)) return badRequest("state is invalid", undefined, requestId);
+    patch.state = v as WorkflowState;
+  }
+
+  if ((body as any).context !== undefined) {
+    const v = (body as any).context;
+    if (v !== null && typeof v !== "string") return badRequest("context must be a string or null", undefined, requestId);
+    patch.context = v as any;
+  }
+
+  if ((body as any).waitingFor !== undefined) {
+    const v = (body as any).waitingFor;
+    if (v !== null && typeof v !== "string") return badRequest("waitingFor must be a string or null", undefined, requestId);
+    patch.waitingFor = v as any;
+  }
+
+  if (body.status !== undefined) {
+    if (!isStatus(body.status)) return badRequest("status must be OPEN or COMPLETED", undefined, requestId);
+    patch.status = body.status;
+    if ((body as any).state === undefined) patch.state = body.status === "COMPLETED" ? "completed" : "inbox";
+  }
+
   let expectedRev: number | undefined;
   if (body.expectedRev !== undefined) {
-    if (!Number.isInteger(body.expectedRev) || body.expectedRev < 0)
-      return badRequest("expectedRev must be a non-negative integer", undefined, requestId);
+    if (!Number.isInteger(body.expectedRev) || body.expectedRev < 0) return badRequest("expectedRev must be a non-negative integer", undefined, requestId);
     expectedRev = body.expectedRev;
   }
 
@@ -115,6 +145,27 @@ export const handler = withHttp(async (
   const now = new Date().toISOString();
 
   try {
+    const current = await getSubtask(ownerSub, parentTaskId, subtaskId);
+    if (!current) return notFound("Subtask not found", requestId);
+
+    const v2 = deriveV2Defaults(current);
+    if (!current.schemaVersion || current.schemaVersion !== 2) {
+      (patch as any).schemaVersion = 2;
+      if (!current.entityType && (patch as any).entityType === undefined) (patch as any).entityType = v2.entityType;
+      if (!current.state && (patch as any).state === undefined) (patch as any).state = v2.state;
+    }
+
+    const fromState = (current.state ?? v2.state) as WorkflowState;
+    const merged = mergeTaskPatch({ ...current, ...v2 }, patch);
+    if (!merged.state) return badRequest("Missing state", undefined, requestId);
+    if (!canTransition(fromState, merged.state)) {
+      return badRequest(`Invalid state transition ${fromState} -> ${merged.state}`, undefined, requestId);
+    }
+
+    const vr = validateMergedTask(merged);
+    if (!vr.ok) return badRequest(vr.message, undefined, requestId);
+
+    patch.status = merged.status;
     const updated = await updateSubtask(ownerSub, parentTaskId, subtaskId, patch, now, undefined, expectedRev);
     if (!updated) return notFound("Subtask not found", requestId);
     const resp: UpdateSubtaskResponse = { task: updated };

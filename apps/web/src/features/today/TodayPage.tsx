@@ -1,20 +1,21 @@
-import { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import type { TodayResponse } from "@tm/shared";
+import type { TodayResponse, TodayTask, UpdateTaskRequest } from "@tm/shared";
 import { useAuth } from "../../auth/AuthContext";
 import { ApiError } from "../../api/http";
 import InlineAlert from "../../components/InlineAlert";
 import { getToday } from "./api";
 import InsightsPanel from "../insights/InsightsPanel";
 import { getHygieneSignals } from "../tasks/hygiene";
+import { completeTask, updateSharedRoot, updateSharedSubtask, updateSubtask, updateTask } from "../tasks/api";
 import {
   applyTaskFilter,
   effortToMinutes,
+  minimumDurationToMinutes,
   prioritySignal,
   TODAY_CONSTANTS,
   type ProjectHealthIssue,
   type TodayFilter,
-  type TodayTask,
 } from "./scoring";
 
 type UiError = {
@@ -23,6 +24,9 @@ type UiError = {
   code?: string;
   status?: number;
 };
+
+const DEFER_COUNT_ATTR = "_egsDeferCount";
+const LAST_DEFERRED_AT_ATTR = "_egsLastDeferredAt";
 
 function toUiError(e: unknown): UiError {
   if (e instanceof ApiError) {
@@ -74,14 +78,95 @@ function filterLabel(filter: TodayFilter): string {
   }
 }
 
-function TaskCard({ task, now, onOpenProject }: { task: TodayTask; now: Date; onOpenProject: (task: TodayTask) => void }) {
+function isoDatePlusDays(days: number): string {
+  const d = new Date();
+  d.setDate(d.getDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
+function canEditTask(task: TodayTask): boolean {
+  if (task.source !== "shared") return true;
+  return task.sharedMeta?.mode === "EDIT";
+}
+
+function taskPath(task: TodayTask): string {
+
+  // Open real projects in project workspace
+  if (task.entityType === "project" && !task.parentTaskId) {
+    return `/app/tasks?view=projects&focus=${encodeURIComponent(task.taskId)}&pview=all&scrollTo=${encodeURIComponent(task.taskId)}&edit=${encodeURIComponent(task.taskId)}`;
+  }
+
+  // Otherwise open in normal task list view
+  const stateView = task.state ?? "inbox";
+
+  return `/app/tasks?view=${encodeURIComponent(stateView)}&scrollTo=${encodeURIComponent(task.taskId)}&edit=${encodeURIComponent(task.taskId)}`;
+}
+
+function cardClickProps(onOpen: () => void) {
+  return {
+    role: "button" as const,
+    tabIndex: 0,
+    onClick: onOpen,
+    onKeyDown: (e: React.KeyboardEvent<HTMLDivElement>) => {
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        onOpen();
+      }
+    },
+  };
+}
+
+async function patchTodayTask(tokens: NonNullable<ReturnType<typeof useAuth>["tokens"]>, task: TodayTask, patch: UpdateTaskRequest) {
+  if (task.source === "shared" && task.sharedMeta) {
+    if (task.sharedMeta.mode !== "EDIT") throw new Error("This shared task is view-only.");
+    if (task.parentTaskId) {
+      return updateSharedSubtask(tokens, task.sharedMeta.ownerSub, task.sharedMeta.rootTaskId, task.parentTaskId, task.taskId, {
+        ...patch,
+        expectedRev: task.rev,
+      });
+    }
+    return updateSharedRoot(tokens, task.sharedMeta.ownerSub, task.sharedMeta.rootTaskId, { ...patch, expectedRev: task.rev });
+  }
+
+  if (task.parentTaskId) {
+    return updateSubtask(tokens, task.parentTaskId, task.taskId, { ...patch, expectedRev: task.rev });
+  }
+  return updateTask(tokens, task.taskId, { ...patch, expectedRev: task.rev });
+}
+
+function withDeferredAttrs(task: TodayTask) {
+  const current = typeof task.attrs?.[DEFER_COUNT_ATTR] === "number" ? task.attrs?.[DEFER_COUNT_ATTR] : 0;
+  return {
+    ...(task.attrs ?? {}),
+    [DEFER_COUNT_ATTR]: (current ?? 0) + 1,
+    [LAST_DEFERRED_AT_ATTR]: new Date().toISOString(),
+  };
+}
+
+function TaskCard({
+  task,
+  now,
+  onOpenTask,
+  onOpenProject,
+  onQuickAction,
+  pending,
+}: {
+  task: TodayTask;
+  now: Date;
+  onOpenTask: (task: TodayTask) => void;
+  onOpenProject: (task: TodayTask) => void;
+  onQuickAction: (task: TodayTask, action: "complete" | "tomorrow" | "plus3" | "waiting" | "reschedule") => void;
+  pending: boolean;
+}) {
   const due = formatDueDate(task.dueDate);
-  const minutes = effortToMinutes(task.effort);
+  const effortMinutes = effortToMinutes(task.effort);
+  const minimumBlockMinutes = minimumDurationToMinutes(task.minimumDuration);
   const signal = prioritySignal(task, now);
   const hygiene = getHygieneSignals(task, now);
+  const editable = canEditTask(task);
 
   return (
-    <div key={`${task.source}-${task.taskId}`} className="card today-task-card" style={{ padding: 14 }}>
+    <div key={`${task.source}-${task.taskId}`} className="card today-task-card" style={{ padding: 14, cursor: "pointer" }} {...cardClickProps(() => onOpenTask(task))}>
       <div className="row space-between" style={{ alignItems: "flex-start", gap: 8 }}>
         <div style={{ minWidth: 0, flex: 1 }}>
           <div style={{ fontWeight: 700, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
@@ -94,26 +179,71 @@ function TaskCard({ task, now, onOpenProject }: { task: TodayTask; now: Date; on
             {task.state ? ` · ${task.state}` : ""}
             {typeof task.priority === "number" ? ` · P${task.priority}` : ""}
             {task.context ? ` · ${task.context}` : ""}
-            {minutes !== null ? ` · ${minutes}m` : ""}
+            {effortMinutes !== null ? ` · effort ${effortMinutes}m` : ""}
+            {minimumBlockMinutes !== null ? ` · block ${minimumBlockMinutes}m` : ""}
             {task.source === "shared" && task.sharedMeta ? ` · ${task.sharedMeta.mode}` : ""}
           </div>
 
           {due ? <div className="help" style={{ marginTop: 4 }}>Due {due}</div> : null}
           {hygiene.length ? <div className="row" style={{ gap: 6, flexWrap: "wrap", marginTop: 8 }}>{hygiene.map((item) => <span key={item.key} className="pill" title={item.label}>{item.icon} {item.label}</span>)}</div> : null}
+
+          <div className="row" style={{ gap: 8, flexWrap: "wrap", marginTop: 10 }}>
+            <button type="button" className="btn btn-compact" disabled={!editable || pending} onClick={(e) => { e.stopPropagation(); onQuickAction(task, "complete"); }} title={!editable ? "View-only shared task" : undefined}>
+              {pending ? "Working…" : "Complete"}
+            </button>
+            <button type="button" className="btn btn-secondary btn-compact" disabled={!editable || pending} onClick={(e) => { e.stopPropagation(); onQuickAction(task, "tomorrow"); }} title={!editable ? "View-only shared task" : undefined}>
+              Tomorrow
+            </button>
+            <button type="button" className="btn btn-secondary btn-compact" disabled={!editable || pending} onClick={(e) => { e.stopPropagation(); onQuickAction(task, "plus3"); }} title={!editable ? "View-only shared task" : undefined}>
+              +3 days
+            </button>
+            <button type="button" className="btn btn-secondary btn-compact" disabled={!editable || pending} onClick={(e) => { e.stopPropagation(); onQuickAction(task, "waiting"); }} title={!editable ? "View-only shared task" : undefined}>
+              Waiting
+            </button>
+            <button type="button" className="btn btn-secondary btn-compact" disabled={!editable || pending} onClick={(e) => { e.stopPropagation(); onQuickAction(task, "reschedule"); }} title={!editable ? "View-only shared task" : undefined}>
+              Reschedule
+            </button>
+            <button type="button" className="btn btn-secondary btn-compact" onClick={(e) => { e.stopPropagation(); onOpenProject(task); }}>Open Project</button>
+          </div>
         </div>
-        <button type="button" className="btn btn-secondary btn-compact" onClick={() => onOpenProject(task)}>Open in Tasks</button>
       </div>
     </div>
   );
 }
 
-function Section({ title, tasks, now, onOpenProject }: { title: string; tasks: TodayTask[]; now: Date; onOpenProject: (task: TodayTask) => void }) {
+function Section({
+  title,
+  tasks,
+  now,
+  onOpenTask,
+  onOpenProject,
+  onQuickAction,
+  pendingTaskId,
+}: {
+  title: string;
+  tasks: TodayTask[];
+  now: Date;
+  onOpenTask: (task: TodayTask) => void;
+  onOpenProject: (task: TodayTask) => void;
+  onQuickAction: (task: TodayTask, action: "complete" | "tomorrow" | "plus3" | "waiting" | "reschedule") => void;
+  pendingTaskId: string | null;
+}) {
   if (!tasks.length) return null;
   return (
     <div style={{ marginBottom: 24 }}>
       <h3 style={{ marginBottom: 10 }}>{title}</h3>
       <div style={{ display: "grid", gap: 10 }}>
-        {tasks.map((task) => <TaskCard key={`${task.source}-${task.taskId}`} task={task} now={now} onOpenProject={onOpenProject} />)}
+        {tasks.map((task) => (
+          <TaskCard
+            key={`${task.source}-${task.taskId}`}
+            task={task}
+            now={now}
+            onOpenTask={onOpenTask}
+            onOpenProject={onOpenProject}
+            onQuickAction={onQuickAction}
+            pending={pendingTaskId === `${task.source}:${task.taskId}`}
+          />
+        ))}
       </div>
     </div>
   );
@@ -129,7 +259,7 @@ function ProjectHealthPanel({ items, onOpenProject }: { items: ProjectHealthIssu
       </div>
       <div style={{ display: "grid", gap: 10 }}>
         {items.map((item) => (
-          <div key={`${item.project.source}-${item.project.taskId}`} className="today-project-health-row">
+          <div key={`${item.project.source}-${item.project.taskId}`} className="today-project-health-row" style={{ cursor: "pointer" }} {...cardClickProps(() => onOpenProject(item.project))}>
             <div style={{ fontWeight: 700 }}>{item.project.title}</div>
             <div className="row" style={{ gap: 6, flexWrap: "wrap", marginTop: 6 }}>
               {item.issues.map((issue) => <span key={issue} className="pill">{issueLabel(issue)}</span>)}
@@ -138,7 +268,7 @@ function ProjectHealthPanel({ items, onOpenProject }: { items: ProjectHealthIssu
               {item.nextActions} next · {item.openActions} open actions · {item.stalledWaiting} stalled waiting
             </div>
             <div style={{ marginTop: 8 }}>
-              <button type="button" className="btn btn-secondary btn-compact" onClick={() => onOpenProject(item.project)}>Open project</button>
+              <button type="button" className="btn btn-secondary btn-compact" onClick={(e) => { e.stopPropagation(); onOpenProject(item.project); }}>Open project</button>
             </div>
           </div>
         ))}
@@ -182,6 +312,7 @@ export default function TodayPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<UiError | null>(null);
   const [refreshVersion, setRefreshVersion] = useState(0);
+  const [pendingTaskId, setPendingTaskId] = useState<string | null>(null);
   const now = new Date();
 
   useEffect(() => {
@@ -204,18 +335,70 @@ export default function TodayPage() {
     return () => ac.abort();
   }, [tokens, includeShared, refreshVersion]);
 
+  const overdue = useMemo(() => applyTaskFilter(data?.overdue ?? [], filter, now), [data, filter, now]);
+  const dueToday = useMemo(() => applyTaskFilter(data?.dueToday ?? [], filter, now), [data, filter, now]);
   const recommended = useMemo(() => applyTaskFilter(data?.recommended ?? [], filter, now).slice(0, TODAY_CONSTANTS.MAX_RECOMMENDED), [data, filter, now]);
+  const waiting = useMemo(() => applyTaskFilter(data?.waiting ?? [], filter, now), [data, filter, now]);
 
   const openProject = (task: TodayTask) => {
     const projectId = task.entityType === "project" && !task.parentTaskId ? task.taskId : (task.sharedMeta?.rootTaskId ?? task.parentTaskId ?? task.taskId);
-    navigate(`/app/tasks?view=projects&focus=${encodeURIComponent(projectId)}&pview=all&scrollTo=${encodeURIComponent(projectId)}`);
+    navigate(`/app/tasks?view=projects&focus=${encodeURIComponent(projectId)}&pview=all&scrollTo=${encodeURIComponent(projectId)}&edit=${encodeURIComponent(projectId)}`);
+  };
+
+  const openTask = (task: TodayTask) => {
+    navigate(taskPath(task));
+  };
+
+  const handleQuickAction = async (task: TodayTask, action: "complete" | "tomorrow" | "plus3" | "waiting" | "reschedule") => {
+    if (!tokens) return;
+    try {
+      setPendingTaskId(`${task.source}:${task.taskId}`);
+      setError(null);
+
+      if (action === "complete") {
+        if (task.source === "owned" && !task.parentTaskId) {
+          await completeTask(tokens, task.taskId, task.rev);
+        } else {
+          await patchTodayTask(tokens, task, { state: "completed" });
+        }
+      } else if (action === "tomorrow" || action === "plus3") {
+        const days = action === "tomorrow" ? 1 : 3;
+        await patchTodayTask(tokens, task, {
+          state: "scheduled",
+          dueDate: isoDatePlusDays(days),
+          attrs: withDeferredAttrs(task),
+        });
+      } else if (action === "waiting") {
+        const value = window.prompt(`Waiting for… (${task.title})`, task.waitingFor ?? "Awaiting response");
+        if (!value) return;
+        await patchTodayTask(tokens, task, {
+          state: "waiting",
+          waitingFor: value.trim(),
+          dueDate: null,
+        });
+      } else if (action === "reschedule") {
+        const initial = task.dueDate ? task.dueDate.slice(0, 10) : isoDatePlusDays(1);
+        const value = window.prompt(`New due date for "${task.title}" (YYYY-MM-DD)`, initial);
+        if (!value) return;
+        await patchTodayTask(tokens, task, {
+          state: "scheduled",
+          dueDate: value.trim(),
+        });
+      }
+
+      setRefreshVersion((v) => v + 1);
+    } catch (e) {
+      setError(toUiError(e));
+    } finally {
+      setPendingTaskId(null);
+    }
   };
 
   return (
     <div className="stack">
       <div>
         <div style={{ fontSize: 22, fontWeight: 900 }}>Today</div>
-        <div className="help">Best tasks to do now, based on priority, urgency, effort, context, and aging.</div>
+        <div className="help">Best tasks to do now, based on priority, urgency, effort, minimum focus block, context, and aging.</div>
       </div>
 
       {error ? (
@@ -258,11 +441,11 @@ export default function TodayPage() {
       {!loading && data ? (
         <>
           <ProjectHealthPanel items={data.projectHealth} onOpenProject={openProject} />
-          <Section title="Overdue" tasks={data.overdue} now={now} onOpenProject={openProject} />
-          <Section title="Due today" tasks={data.dueToday} now={now} onOpenProject={openProject} />
-          <Section title={filterLabel(filter)} tasks={recommended} now={now} onOpenProject={openProject} />
-          <Section title="Waiting follow-ups" tasks={data.waiting} now={now} onOpenProject={openProject} />
-          {!data.overdue.length && !data.dueToday.length && !recommended.length && !data.waiting.length && !data.projectHealth.length ? (
+          <Section title="Overdue" tasks={overdue} now={now} onOpenTask={openTask} onOpenProject={openProject} onQuickAction={handleQuickAction} pendingTaskId={pendingTaskId} />
+          <Section title="Due today" tasks={dueToday} now={now} onOpenTask={openTask} onOpenProject={openProject} onQuickAction={handleQuickAction} pendingTaskId={pendingTaskId} />
+          <Section title={filterLabel(filter)} tasks={recommended} now={now} onOpenTask={openTask} onOpenProject={openProject} onQuickAction={handleQuickAction} pendingTaskId={pendingTaskId} />
+          <Section title="Waiting follow-ups" tasks={waiting} now={now} onOpenTask={openTask} onOpenProject={openProject} onQuickAction={handleQuickAction} pendingTaskId={pendingTaskId} />
+          {!overdue.length && !dueToday.length && !recommended.length && !waiting.length && !data.projectHealth.length ? (
             <div className="card" style={{ padding: 14 }}>
               <div style={{ fontWeight: 700 }}>Nothing urgent right now</div>
               <div className="help" style={{ marginTop: 4 }}>

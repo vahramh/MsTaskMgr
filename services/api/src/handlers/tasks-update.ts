@@ -6,7 +6,7 @@ import type { HttpHandlerContext } from "../lib/handler";
 import { getTask, updateTask } from "../tasks/repo";
 import { log, toErrorInfo } from "../lib/log";
 import { parseJsonBody } from "../lib/request";
-import { normalizeNullable, validateAttrs, validateDueDate, validateEffort, validatePriority } from "../tasks/validate";
+import { normalizeNullable, validateAttrs, validateDueDate, validateEffort, validateMinimumDuration, validatePriority } from "../tasks/validate";
 import {
   canTransition,
   deriveV2Defaults,
@@ -74,6 +74,12 @@ export const handler = withHttp(
       const r = normalizeNullable((body as any).effort, validateEffort, "effort");
       if (!r.ok) return badRequest(r.message, undefined, requestId);
       patch.effort = r.value as any;
+    }
+
+    if ((body as any).minimumDuration !== undefined) {
+      const r = normalizeNullable((body as any).minimumDuration, validateMinimumDuration, "minimumDuration");
+      if (!r.ok) return badRequest(r.message, undefined, requestId);
+      patch.minimumDuration = r.value as any;
     }
 
     if ((body as any).attrs !== undefined) {

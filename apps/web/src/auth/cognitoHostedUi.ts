@@ -85,6 +85,39 @@ export async function handleCallback(code: string, state: string): Promise<Cogni
   return tokens;
 }
 
+export async function refreshTokens(refreshToken: string): Promise<CognitoTokens> {
+  const body = new URLSearchParams({
+    grant_type: "refresh_token",
+    client_id: cfg.clientId,
+    refresh_token: refreshToken,
+  });
+
+  const res = await fetch(`${cfg.domain}/oauth2/token`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/x-www-form-urlencoded",
+    },
+    body,
+  });
+
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`Token refresh failed (${res.status}): ${text}`);
+  }
+
+  const json = (await res.json()) as Omit<CognitoTokens, "obtained_at">;
+
+  const tokens: CognitoTokens = {
+    ...json,
+    refresh_token: refreshToken,
+    obtained_at: Date.now(),
+  };
+
+  saveTokens(tokens);
+
+  return tokens;
+}
+
 /**
  * Hosted UI logout (ends Cognito session + redirects back)
  */

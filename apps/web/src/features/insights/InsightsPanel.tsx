@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import type { InsightSuggestion, InsightsResponse, TodayTask, UpdateTaskRequest } from "@tm/shared";
 import { ApiError } from "../../api/http";
 import { useAuth } from "../../auth/AuthContext";
@@ -25,8 +25,30 @@ function toUiError(e: unknown): { message: string; requestId?: string; code?: st
 }
 
 function taskPath(task: TodayTask): string {
-  const projectId = task.entityType === "project" && !task.parentTaskId ? task.taskId : (task.sharedMeta?.rootTaskId ?? task.parentTaskId ?? task.taskId);
-  return `/app/tasks?view=projects&focus=${encodeURIComponent(projectId)}&pview=all&scrollTo=${encodeURIComponent(projectId)}`;
+
+  // Open real projects in project workspace
+  if (task.entityType === "project" && !task.parentTaskId) {
+    return `/app/tasks?view=projects&focus=${encodeURIComponent(task.taskId)}&pview=all&scrollTo=${encodeURIComponent(task.taskId)}&edit=${encodeURIComponent(task.taskId)}`;
+  }
+
+  // Otherwise open in normal task list view
+  const stateView = task.state ?? "inbox";
+
+  return `/app/tasks?view=${encodeURIComponent(stateView)}&scrollTo=${encodeURIComponent(task.taskId)}&edit=${encodeURIComponent(task.taskId)}`;
+}
+
+function cardClickProps(onOpen: () => void) {
+  return {
+    role: "button" as const,
+    tabIndex: 0,
+    onClick: onOpen,
+    onKeyDown: (e: React.KeyboardEvent<HTMLDivElement>) => {
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        onOpen();
+      }
+    },
+  };
 }
 
 async function patchTask(tokens: NonNullable<ReturnType<typeof useAuth>["tokens"]>, task: TodayTask, patch: UpdateTaskRequest) {
@@ -62,6 +84,7 @@ function actionLabel(s: InsightSuggestion): string {
     case "create_next_action": return "Create Next Action";
     case "add_context": return "Add Context";
     case "add_effort": return "Add Effort";
+    case "add_minimum_duration": return "Add Focus Block";
     case "set_due_date": return "Set Due Date";
     case "set_waiting_followup": return "Update Follow-up";
     case "open_task":
@@ -137,6 +160,10 @@ export default function InsightsPanel({
           if (!task) return;
           await patchTask(tokens, task, { effort: { unit: "hours", value: 0.25 } });
           break;
+        case "add_minimum_duration":
+          if (!task) return;
+          await patchTask(tokens, task, { minimumDuration: { unit: "minutes", value: 30 } });
+          break;
         case "set_due_date":
         case "set_waiting_followup":
           if (!task) return;
@@ -194,9 +221,14 @@ export default function InsightsPanel({
             const target = suggestion.task ?? suggestion.project;
             const editable = canEditSuggestion(suggestion);
             return (
-              <div key={suggestion.id} className="today-task-card" style={{ padding: 12 }}>
-                <div className="row space-between" style={{ gap: 10, alignItems: "flex-start" }}>
-                  <div style={{ minWidth: 0, flex: 1 }}>
+              <div
+                key={suggestion.id}
+                className="today-task-card"
+                style={{ padding: 12, cursor: "pointer" }}
+                {...cardClickProps(() => window.location.assign(target ? taskPath(target) : "/app/tasks"))}
+              >
+                <div className="content-actions-row">
+                  <div className="content-actions-main text-wrap">
                     <div style={{ fontWeight: 700 }}>{suggestion.title}</div>
                     <div className="help" style={{ marginTop: 4 }}>{suggestion.reason}</div>
                     <div className="row" style={{ gap: 6, flexWrap: "wrap", marginTop: 8 }}>
@@ -205,13 +237,13 @@ export default function InsightsPanel({
                       {target?.source === "shared" ? <span className="pill">{editable ? "Shared · edit" : "Shared · view"}</span> : null}
                     </div>
                   </div>
-                  <div className="row" style={{ gap: 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
+                  <div className="content-actions-side">
                     {suggestion.recommendedAction !== "open_task" ? (
                       <button
                         type="button"
                         className="btn btn-primary btn-compact"
                         disabled={!editable || pendingId === suggestion.id}
-                        onClick={() => handlePrimary(suggestion)}
+                        onClick={(e) => { e.stopPropagation(); void handlePrimary(suggestion); }}
                         title={!editable ? "View-only shared task" : undefined}
                       >
                         {pendingId === suggestion.id ? "Working…" : actionLabel(suggestion)}
@@ -220,7 +252,7 @@ export default function InsightsPanel({
                     <button
                       type="button"
                       className="btn btn-secondary btn-compact"
-                      onClick={() => window.location.assign(target ? taskPath(target) : "/app/tasks")}
+                      onClick={(e) => { e.stopPropagation(); window.location.assign(target ? taskPath(target) : "/app/tasks"); }}
                     >
                       Open in Tasks
                     </button>

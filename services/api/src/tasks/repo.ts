@@ -198,6 +198,15 @@ export async function updateTask(
     }
   }
 
+  if ((patch as any).minimumDuration !== undefined) {
+    names["#minimumDuration"] = "minimumDuration";
+    if ((patch as any).minimumDuration === null) remove.push("#minimumDuration");
+    else {
+      values[":minimumDuration"] = (patch as any).minimumDuration;
+      expr.push("#minimumDuration = :minimumDuration");
+    }
+  }
+
   if ((patch as any).attrs !== undefined) {
     names["#attrs"] = "attrs";
     if ((patch as any).attrs === null) remove.push("#attrs");
@@ -456,6 +465,15 @@ export async function updateSubtask(
     else {
       values[":effort"] = (patch as any).effort;
       expr.push("#effort = :effort");
+    }
+  }
+
+  if ((patch as any).minimumDuration !== undefined) {
+    names["#minimumDuration"] = "minimumDuration";
+    if ((patch as any).minimumDuration === null) remove.push("#minimumDuration");
+    else {
+      values[":minimumDuration"] = (patch as any).minimumDuration;
+      expr.push("#minimumDuration = :minimumDuration");
     }
   }
 

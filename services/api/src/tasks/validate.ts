@@ -1,4 +1,4 @@
-import type { EffortEstimate, TaskAttributes, TaskAttrValue, TaskPriority } from "@tm/shared";
+import type { DurationEstimate, EffortEstimate, TaskAttributes, TaskAttrValue, TaskPriority } from "@tm/shared";
 
 function isPlainObject(v: unknown): v is Record<string, unknown> {
   if (!v || typeof v !== "object") return false;
@@ -44,6 +44,24 @@ export function validateEffort(raw: unknown): { ok: true; value?: EffortEstimate
   if (unit === "days" && value > 3650) return { ok: false, message: "effort.value too large (days max 3650)" };
 
   return { ok: true, value: { unit, value } as EffortEstimate };
+}
+
+
+export function validateMinimumDuration(raw: unknown): { ok: true; value?: DurationEstimate } | { ok: false; message: string } {
+  if (raw === undefined) return { ok: true, value: undefined };
+  if (!isPlainObject(raw)) return { ok: false, message: "minimumDuration must be an object" };
+
+  const unit = (raw as any).unit;
+  const value = (raw as any).value;
+
+  if (unit !== "minutes" && unit !== "hours") return { ok: false, message: "minimumDuration.unit must be 'minutes' or 'hours'" };
+  if (typeof value !== "number" || !Number.isFinite(value)) return { ok: false, message: "minimumDuration.value must be a finite number" };
+  if (value <= 0) return { ok: false, message: "minimumDuration.value must be > 0" };
+
+  if (unit === "minutes" && value > 1440) return { ok: false, message: "minimumDuration.value too large (minutes max 1440)" };
+  if (unit === "hours" && value > 24) return { ok: false, message: "minimumDuration.value too large (hours max 24)" };
+
+  return { ok: true, value: { unit, value } as DurationEstimate };
 }
 
 function validateAttrValue(v: unknown): v is TaskAttrValue {

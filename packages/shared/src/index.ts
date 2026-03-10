@@ -28,9 +28,15 @@ export type EntityType = "project" | "action";
 export type TaskPriority = 1 | 2 | 3 | 4 | 5;
 
 export type EffortUnit = "hours" | "days";
+export type DurationUnit = "minutes" | "hours";
 
 export type EffortEstimate = {
   unit: EffortUnit;
+  value: number; // positive finite
+};
+
+export type DurationEstimate = {
+  unit: DurationUnit;
   value: number; // positive finite
 };
 
@@ -76,6 +82,9 @@ export type Task = {
 
   effort?: EffortEstimate;
 
+  /** Smallest uninterrupted block worth starting this task. */
+  minimumDuration?: DurationEstimate;
+
   /** User-defined attributes (small, bounded values). */
   attrs?: TaskAttributes;
 
@@ -90,6 +99,7 @@ export type CreateTaskRequest = {
   dueDate?: string;
   priority?: TaskPriority;
   effort?: EffortEstimate;
+  minimumDuration?: DurationEstimate;
   attrs?: TaskAttributes;
 
   // Phase 4 (GTD) - optional for backward compatibility
@@ -121,6 +131,9 @@ export type UpdateTaskRequest = {
 
   /** Set to null to clear. */
   effort?: EffortEstimate | null;
+
+  /** Set to null to clear. */
+  minimumDuration?: DurationEstimate | null;
 
   /** Set to null to clear. */
   attrs?: TaskAttributes | null;
@@ -300,6 +313,9 @@ export type InsightSuggestionType =
   | "waitingFollowUp"
   | "missingContext"
   | "missingEffort"
+  | "missingMinimumDuration"
+  | "repeatedDeferredLargeBlock"
+  | "projectNextMissingMinimumDuration"
   | "scheduledWithoutDueDate"
   | "staleTask"
   | "oldSomeday";
@@ -310,6 +326,9 @@ export type InsightReasonCode =
   | "waiting_stale"
   | "context_missing"
   | "effort_missing"
+  | "minimum_duration_missing"
+  | "deferred_large_block"
+  | "project_next_missing_minimum_duration"
   | "scheduled_no_due_date"
   | "task_stale"
   | "someday_old";
@@ -320,6 +339,7 @@ export type InsightRecommendedAction =
   | "set_waiting_followup"
   | "add_context"
   | "add_effort"
+  | "add_minimum_duration"
   | "set_due_date"
   | "open_task";
 
