@@ -695,25 +695,25 @@ export default function TasksPage() {
     },
   });
 
-  const viewCounts = useMemo(() => {
-    const counts: Record<ViewKey, number> = {
-      inbox: 0,
-      next: 0,
-      waiting: 0,
-      scheduled: 0,
-      someday: 0,
-      reference: 0,
-      completed: 0,
-      projects: 0,
-    };
+  const [subtaskSpeechParentId, setSubtaskSpeechParentId] = useState<string | null>(null);
+  const subtaskSpeechParentIdRef = useRef<string | null>(null);
+  const subtaskSpeech = useSpeechToText({
+    lang: "en-AU",
+    onResult: (text) => {
+      const parsed = parseVoiceTaskCapture(text);
+      const nextTitle = parsed.cleanTitle.trim();
+      const parentId = subtaskSpeechParentIdRef.current;
+      if (!parentId || !nextTitle) return;
 
-    for (const t of items) {
-      const s = deriveState(t);
-      counts[s] = (counts[s] ?? 0) + 1;
-      if (deriveEntityType(t) === "project") counts.projects += 1;
-    }
-    return counts;
-  }, [items]);
+      setNewChildTitle((prev) => ({
+        ...prev,
+        [parentId]: prev[parentId]?.trim()
+          ? `${prev[parentId].trim()} ${nextTitle}`.trim()
+          : nextTitle,
+      }));
+    },
+  });
+
   // ===== Phase 6 PR4.3: focused project workspace =====
   type FocusViewKey = WorkflowState | "all";
   const FOCUS_VIEW_DEFS: Array<{ key: FocusViewKey; label: string }> = [
@@ -962,6 +962,13 @@ export default function TasksPage() {
     }
   }, [showCreate]);
 
+  useEffect(() => {
+    if (subtaskSpeech.state !== "listening" && subtaskSpeechParentIdRef.current) {
+      subtaskSpeechParentIdRef.current = null;
+      setSubtaskSpeechParentId(null);
+    }
+  }, [subtaskSpeech.state]);
+
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!canCreate) return;
@@ -1104,6 +1111,23 @@ export default function TasksPage() {
     setExpandedOn(focusId, true);
   }, [focusId, view, loadChildren, setExpandedOn]);
 
+  useEffect(() => {
+    if (!tokens) return;
+    if (view === "projects") return;
+
+    const rootProjects = items.filter(
+      (t) => deriveEntityType(t) === "project" && !t.parentTaskId
+    );
+
+    for (const project of rootProjects) {
+      const st = getSubtree(project.taskId);
+
+      if (!st.loaded && !st.loading) {
+        void loadChildren(project.taskId);
+      }
+    }
+  }, [tokens, view, items, getSubtree, loadChildren]);  
+
   React.useEffect(() => {
     if (!editId) return;
 
@@ -1239,6 +1263,25 @@ export default function TasksPage() {
     },
     [tokens, newChildTitle, clearAllErrors, setSubPending]
   );
+
+  const toggleSubtaskSpeech = useCallback((parentTaskId: string) => {
+    if (!subtaskSpeech.supported) return;
+
+    const isThisParentListening =
+      subtaskSpeech.state === "listening" && subtaskSpeechParentIdRef.current === parentTaskId;
+
+    if (isThisParentListening) {
+      subtaskSpeech.stop();
+      subtaskSpeechParentIdRef.current = null;
+      setSubtaskSpeechParentId(null);
+      return;
+    }
+
+    subtaskSpeechParentIdRef.current = parentTaskId;
+    setSubtaskSpeechParentId(parentTaskId);
+    subtaskSpeech.reset();
+    subtaskSpeech.start();
+  }, [subtaskSpeech]);
 
   const patchNode = useCallback(
     async (
@@ -1556,13 +1599,42 @@ export default function TasksPage() {
             </div>
 
             <div className="row" style={{ gap: 8, alignItems: "center", marginBottom: 10, flexWrap: "wrap" }}>
-              <input
-                className="input"
-                style={{ minWidth: 240 }}
-                placeholder="Add a subtask…"
-                value={newChildTitle[parentTaskId] ?? ""}
-                onChange={(e) => setNewChildTitle((prev) => ({ ...prev, [parentTaskId]: e.target.value }))}
-              />
+              <div className="speech-input-row" style={{ minWidth: 240, flex: "1 1 320px" }}>
+                <input
+                  className="input"
+                  style={{ minWidth: 240 }}
+                  placeholder="Add a subtask…"
+                  value={newChildTitle[parentTaskId] ?? ""}
+                  onChange={(e) => setNewChildTitle((prev) => ({ ...prev, [parentTaskId]: e.target.value }))}
+                />
+
+                {subtaskSpeech.supported ? (
+                  <button
+                    type="button"
+                    className={`btn btn-secondary speech-mic-btn${
+                      subtaskSpeech.state === "listening" && subtaskSpeechParentId === parentTaskId
+                        ? " is-listening"
+                        : ""
+                    }`}
+                    onClick={() => {
+                      toggleSubtaskSpeech(parentTaskId);
+                    }}
+                    aria-label={
+                      subtaskSpeech.state === "listening" && subtaskSpeechParentId === parentTaskId
+                        ? "Stop voice input"
+                        : "Start voice input"
+                    }
+                    title={
+                      subtaskSpeech.state === "listening" && subtaskSpeechParentId === parentTaskId
+                        ? "Stop voice input"
+                        : "Speak subtask title"
+                    }
+                  >
+                    {subtaskSpeech.state === "listening" && subtaskSpeechParentId === parentTaskId ? "●" : "🎤"}
+                  </button>
+                ) : null}
+              </div>
+
               <button
                 type="button"
                 className="btn"
@@ -1573,6 +1645,7 @@ export default function TasksPage() {
               >
                 Add
               </button>
+
               <button
                 type="button"
                 className="btn btn-secondary"
@@ -1583,6 +1656,7 @@ export default function TasksPage() {
               >
                 Refresh
               </button>
+
               {st.nextToken ? (
                 <button
                   type="button"
@@ -1596,6 +1670,22 @@ export default function TasksPage() {
                 </button>
               ) : null}
             </div>
+
+            {subtaskSpeech.supported &&
+            subtaskSpeech.state === "listening" &&
+            subtaskSpeechParentId === parentTaskId ? (
+              <div className="help" style={{ marginBottom: 8 }}>
+                Listening… speak the subtask title.
+              </div>
+            ) : null}
+
+            {subtaskSpeech.supported &&
+            subtaskSpeech.error &&
+            subtaskSpeechParentId === parentTaskId ? (
+              <div className="help" style={{ marginBottom: 8, color: "#991b1b" }}>
+                {speechErrorLabel(subtaskSpeech.error)}
+              </div>
+            ) : null}
 
             {st.loading && !st.loaded ? (
               <div className="help">Loading subtasks…</div>
@@ -2008,18 +2098,81 @@ export default function TasksPage() {
       quickTransition,
       view,
       subtrees,
+      subtaskSpeech,
+      subtaskSpeechParentId,
+      toggleSubtaskSpeech,
     ]
   );
+
+  const loadedSubtaskItems = useMemo(() => {
+    const flat: Task[] = [];
+    const seen = new Set<string>();
+
+    for (const st of Object.values(subtrees)) {
+      for (const t of st.items ?? []) {
+        if (seen.has(t.taskId)) continue;
+        seen.add(t.taskId);
+        flat.push(t);
+      }
+    }
+
+    return flat;
+  }, [subtrees]);
+
+  const bucketSourceItems = useMemo(() => {
+    const combined: Task[] = [];
+    const seen = new Set<string>();
+
+    for (const t of items) {
+      if (seen.has(t.taskId)) continue;
+      seen.add(t.taskId);
+      combined.push(t);
+    }
+
+    for (const t of loadedSubtaskItems) {
+      if (seen.has(t.taskId)) continue;
+      seen.add(t.taskId);
+      combined.push(t);
+    }
+
+    return combined;
+  }, [items, loadedSubtaskItems]);
+
+  const viewCounts = useMemo(() => {
+    const counts: Record<ViewKey, number> = {
+      inbox: 0,
+      next: 0,
+      waiting: 0,
+      scheduled: 0,
+      someday: 0,
+      reference: 0,
+      completed: 0,
+      projects: 0,
+    };
+
+    for (const t of bucketSourceItems) {
+      if (deriveEntityType(t) === "project") {
+        if (!t.parentTaskId) counts.projects += 1;
+        continue;
+      }
+      const s = deriveState(t);
+      counts[s] = (counts[s] ?? 0) + 1;
+    }
+    return counts;
+  }, [bucketSourceItems]);
 
   // ===== Phase 6 PR4.2: focus filtering in Projects view =====
   const visibleItems = useMemo(() => {
     if (view === "projects") {
-      const projects = items.filter((t) => deriveEntityType(t) === "project");
+      const projects = items.filter((t) => deriveEntityType(t) === "project" && !t.parentTaskId);
       if (focusId) return projects.filter((p) => p.taskId === focusId);
       return projects;
     }
-    return items.filter((t) => deriveState(t) === view);
-  }, [items, view, focusId]);
+
+    return bucketSourceItems.filter(
+      (t) => deriveEntityType(t) !== "project" && deriveState(t) === view
+    );
+  }, [items, bucketSourceItems, view, focusId]);
   // ===========================================================
 
   const empty = !initialLoading && visibleItems.length === 0;
