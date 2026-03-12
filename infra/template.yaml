@@ -29,6 +29,7 @@ Globals:
       Variables:
         TASKS_TABLE: !Ref TasksTable
         TASKS_GSI1: GSI1
+        TASKS_GSI2: GSI2
 
 Resources:
   HttpApiAccessLogs:
@@ -84,6 +85,10 @@ Resources:
           AttributeType: S
         - AttributeName: GSI1SK
           AttributeType: S
+        - AttributeName: GSI2PK
+          AttributeType: S
+        - AttributeName: GSI2SK
+          AttributeType: S
       KeySchema:
         - AttributeName: PK
           KeyType: HASH
@@ -95,6 +100,14 @@ Resources:
             - AttributeName: GSI1PK
               KeyType: HASH
             - AttributeName: GSI1SK
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+        - IndexName: GSI2
+          KeySchema:
+            - AttributeName: GSI2PK
+              KeyType: HASH
+            - AttributeName: GSI2SK
               KeyType: RANGE
           Projection:
             ProjectionType: ALL
@@ -723,6 +736,57 @@ Resources:
         Sourcemap: true
         EntryPoints:
           - src/handlers/health.ts
+
+
+  ListTaskBucketFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ../services/api
+      Handler: tasks-buckets-list.handler
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref TasksTable
+      Events:
+        ListTaskBucketRoute:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /task-buckets/{state}
+            Method: GET
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        Format: cjs
+        Minify: false
+        Target: node20
+        Sourcemap: true
+        EntryPoints:
+          - src/handlers/tasks-buckets-list.ts
+
+  TaskBucketCountsFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ../services/api
+      Handler: tasks-buckets-counts.handler
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref TasksTable
+      Events:
+        TaskBucketCountsRoute:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /task-buckets/counts
+            Method: GET
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        Format: cjs
+        Minify: false
+        Target: node20
+        Sourcemap: true
+        EntryPoints:
+          - src/handlers/tasks-buckets-counts.ts
 
   TodayGetFunction:
     Type: AWS::Serverless::Function

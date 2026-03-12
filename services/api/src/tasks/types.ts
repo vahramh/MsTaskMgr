@@ -14,6 +14,9 @@ export type TaskItem = Task & {
   SK: string;
   GSI1PK?: string;
   GSI1SK?: string;
+  GSI2PK?: string;
+  GSI2SK?: string;
+  rootTaskId?: string;
 };
 
 export function toTask(item: any): Task {

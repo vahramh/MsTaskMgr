@@ -1,12 +1,70 @@
-import { PutCommand, QueryCommand, UpdateCommand, DeleteCommand, GetCommand, TransactWriteCommand } from "@aws-sdk/lib-dynamodb";
+import {
+  BatchGetCommand,
+  DeleteCommand,
+  GetCommand,
+  PutCommand,
+  QueryCommand,
+  TransactWriteCommand,
+  UpdateCommand,
+} from "@aws-sdk/lib-dynamodb";
+import type { BucketTask, Task, TaskStatus, UpdateTaskRequest, WorkflowState } from "@tm/shared";
 import { ddb, mustGetEnv } from "../lib/db";
-import { pkForUser, skForTask, skForSubtask, gsi1pkForUser, gsi1skForCreated } from "./keys";
-import type { Task, TaskStatus, UpdateTaskRequest } from "@tm/shared";
-import { toTask, HasChildrenError, ParentLookupMissingError } from "./types";
+import {
+  gsi1pkForUser,
+  gsi1skForCreated,
+  gsi2pkForUserState,
+  gsi2skForBucket,
+  pkForUser,
+  skForSubtask,
+  skForTask,
+} from "./keys";
+import { toTask, HasChildrenError, ParentLookupMissingError, type TaskItem } from "./types";
 import { getLookup, lookupItemForRoot, lookupItemForSubtask } from "./sharing";
 
 const TABLE = () => mustGetEnv("TASKS_TABLE");
 const GSI1 = () => mustGetEnv("TASKS_GSI1");
+const GSI2 = () => mustGetEnv("TASKS_GSI2");
+
+const EXECUTION_STATES: WorkflowState[] = [
+  "inbox",
+  "next",
+  "waiting",
+  "scheduled",
+  "someday",
+  "reference",
+  "completed",
+];
+
+function isExecutionEligible(task: Pick<Task, "entityType" | "state">): boolean {
+  return task.entityType === "action" && !!task.state;
+}
+
+function bucketIndexAttrs(sub: string, task: Pick<Task, "taskId" | "entityType" | "state" | "updatedAt">): Record<string, string> {
+  if (!isExecutionEligible(task)) return {};
+  return {
+    GSI2PK: gsi2pkForUserState(sub, task.state!),
+    GSI2SK: gsi2skForBucket(task.updatedAt, task.taskId),
+  };
+}
+
+function withRootTaskId(task: Task, rootTaskId: string): TaskItem {
+  return { ...(task as TaskItem), rootTaskId };
+}
+
+function asTaskItem(item: Record<string, any> | undefined | null): TaskItem | null {
+  if (!item) return null;
+  return item as TaskItem;
+}
+
+async function getTaskItemByKey(sub: string, sk: string): Promise<TaskItem | null> {
+  const r = await ddb.send(
+    new GetCommand({
+      TableName: TABLE(),
+      Key: { PK: pkForUser(sub), SK: sk },
+    })
+  );
+  return asTaskItem(r.Item);
+}
 
 async function hasChildren(sub: string, parentTaskId: string): Promise<boolean> {
   const prefix = `SUBTASK#${parentTaskId}#`;
@@ -21,16 +79,50 @@ async function hasChildren(sub: string, parentTaskId: string): Promise<boolean> 
   return (r.Items?.length ?? 0) > 0;
 }
 
-export async function createTask(sub: string, task: Task): Promise<Task> {
-  const item = {
+async function resolveRootTaskIdForSubtask(sub: string, parentTaskId: string, taskId: string, current?: TaskItem | null): Promise<string> {
+  if (current?.rootTaskId) return current.rootTaskId;
+  const lookup = await getLookup(sub, taskId);
+  if (lookup?.rootTaskId) return lookup.rootTaskId;
+  const parentLookup = await getLookup(sub, parentTaskId);
+  if (parentLookup?.rootTaskId) return parentLookup.rootTaskId;
+  throw new ParentLookupMissingError();
+}
+
+function applyPatchToIndexFields(current: TaskItem, patch: UpdateTaskRequest, nowIso: string, taskId: string, fallbackRootTaskId: string): TaskItem {
+  return {
+    ...current,
+    taskId,
+    updatedAt: nowIso,
+    entityType: patch.entityType !== undefined ? patch.entityType : current.entityType,
+    state: patch.state !== undefined ? patch.state : current.state,
+    rootTaskId: current.rootTaskId ?? fallbackRootTaskId,
+  } as TaskItem;
+}
+
+function buildRootItem(sub: string, task: Task): TaskItem {
+  return {
     PK: pkForUser(sub),
     SK: skForTask(task.taskId),
     GSI1PK: gsi1pkForUser(sub),
     GSI1SK: gsi1skForCreated(task.createdAt, task.taskId),
-    ...task,
+    ...bucketIndexAttrs(sub, task),
+    ...withRootTaskId(task, task.taskId),
   };
+}
 
-  // Keep task + lookup creation atomic.
+function buildSubtaskItem(sub: string, parentTaskId: string, rootTaskId: string, task: Task): TaskItem {
+  return {
+    PK: pkForUser(sub),
+    SK: skForSubtask(parentTaskId, task.taskId),
+    parentTaskId,
+    ...bucketIndexAttrs(sub, task),
+    ...withRootTaskId(task, rootTaskId),
+  };
+}
+
+export async function createTask(sub: string, task: Task): Promise<Task> {
+  const item = buildRootItem(sub, task);
+
   await ddb.send(
     new TransactWriteCommand({
       TransactItems: [
@@ -55,25 +147,9 @@ export async function createTask(sub: string, task: Task): Promise<Task> {
   return task;
 }
 
-/**
- * Phase 4 (GTD): Create a project root and a mandatory initial child action atomically.
- * This supports the invariant: projects must contain at least one action.
- */
 export async function createProjectWithInitialAction(sub: string, project: Task, firstAction: Task): Promise<{ project: Task; firstAction: Task }> {
-  const projectItem = {
-    PK: pkForUser(sub),
-    SK: skForTask(project.taskId),
-    GSI1PK: gsi1pkForUser(sub),
-    GSI1SK: gsi1skForCreated(project.createdAt, project.taskId),
-    ...project,
-  };
-
-  const actionItem = {
-    PK: pkForUser(sub),
-    SK: skForSubtask(project.taskId, firstAction.taskId),
-    parentTaskId: project.taskId,
-    ...firstAction,
-  };
+  const projectItem = buildRootItem(sub, project);
+  const actionItem = buildSubtaskItem(sub, project.taskId, project.taskId, { ...firstAction, parentTaskId: project.taskId });
 
   await ddb.send(
     new TransactWriteCommand({
@@ -124,7 +200,7 @@ export async function listTasksByCreatedAt(
       IndexName: GSI1(),
       KeyConditionExpression: "GSI1PK = :pk",
       ExpressionAttributeValues: { ":pk": gsi1pkForUser(sub) },
-      ScanIndexForward: false, // newest first (by createdAt)
+      ScanIndexForward: false,
       Limit: limit,
       ExclusiveStartKey: exclusiveStartKey,
     })
@@ -135,13 +211,8 @@ export async function listTasksByCreatedAt(
 }
 
 export async function getTask(sub: string, taskId: string): Promise<Task | null> {
-  const r = await ddb.send(
-    new GetCommand({
-      TableName: TABLE(),
-      Key: { PK: pkForUser(sub), SK: skForTask(taskId) },
-    })
-  );
-  return r.Item ? toTask(r.Item) : null;
+  const item = await getTaskItemByKey(sub, skForTask(taskId));
+  return item ? toTask(item) : null;
 }
 
 export async function updateTask(
@@ -152,14 +223,17 @@ export async function updateTask(
   statusOverride?: TaskStatus,
   expectedRev?: number
 ): Promise<Task | null> {
+  const current = await getTaskItemByKey(sub, skForTask(taskId));
+  if (!current) return null;
+  const indexed = applyPatchToIndexFields(current, patch, nowIso, taskId, taskId);
+
   const expr: string[] = [];
   const remove: string[] = [];
   const names: Record<string, string> = { "#updatedAt": "updatedAt", "#rev": "rev" };
-  const values: Record<string, any> = { ":updatedAt": nowIso, ":inc": 1 };
+  const values: Record<string, any> = { ":updatedAt": nowIso, ":inc": 1, ":zero": 0 };
 
   expr.push("#updatedAt = :updatedAt");
   expr.push("#rev = if_not_exists(#rev, :zero) + :inc");
-  values[":zero"] = 0;
 
   if (patch.title !== undefined) {
     names["#title"] = "title";
@@ -179,7 +253,6 @@ export async function updateTask(
       expr.push("#dueDate = :dueDate");
     }
   }
-
   if ((patch as any).priority !== undefined) {
     names["#priority"] = "priority";
     if ((patch as any).priority === null) remove.push("#priority");
@@ -188,7 +261,6 @@ export async function updateTask(
       expr.push("#priority = :priority");
     }
   }
-
   if ((patch as any).effort !== undefined) {
     names["#effort"] = "effort";
     if ((patch as any).effort === null) remove.push("#effort");
@@ -197,7 +269,6 @@ export async function updateTask(
       expr.push("#effort = :effort");
     }
   }
-
   if ((patch as any).minimumDuration !== undefined) {
     names["#minimumDuration"] = "minimumDuration";
     if ((patch as any).minimumDuration === null) remove.push("#minimumDuration");
@@ -206,7 +277,6 @@ export async function updateTask(
       expr.push("#minimumDuration = :minimumDuration");
     }
   }
-
   if ((patch as any).attrs !== undefined) {
     names["#attrs"] = "attrs";
     if ((patch as any).attrs === null) remove.push("#attrs");
@@ -215,27 +285,21 @@ export async function updateTask(
       expr.push("#attrs = :attrs");
     }
   }
-
-
-  // Phase 4 (GTD)
   if ((patch as any).schemaVersion !== undefined) {
     names["#schemaVersion"] = "schemaVersion";
     values[":schemaVersion"] = (patch as any).schemaVersion;
     expr.push("#schemaVersion = :schemaVersion");
   }
-
   if ((patch as any).entityType !== undefined) {
     names["#entityType"] = "entityType";
     values[":entityType"] = (patch as any).entityType;
     expr.push("#entityType = :entityType");
   }
-
   if ((patch as any).state !== undefined) {
     names["#state"] = "state";
     values[":state"] = (patch as any).state;
     expr.push("#state = :state");
   }
-
   if ((patch as any).context !== undefined) {
     names["#context"] = "context";
     if ((patch as any).context === null) remove.push("#context");
@@ -244,7 +308,6 @@ export async function updateTask(
       expr.push("#context = :context");
     }
   }
-
   if ((patch as any).waitingFor !== undefined) {
     names["#waitingFor"] = "waitingFor";
     if ((patch as any).waitingFor === null) remove.push("#waitingFor");
@@ -261,11 +324,24 @@ export async function updateTask(
     expr.push("#status = :status");
   }
 
-  // Base condition: item exists.
+  names["#rootTaskId"] = "rootTaskId";
+  values[":rootTaskId"] = indexed.rootTaskId;
+  expr.push("#rootTaskId = :rootTaskId");
+
+  const bucketAttrs = bucketIndexAttrs(sub, indexed);
+  names["#gsi2pk"] = "GSI2PK";
+  names["#gsi2sk"] = "GSI2SK";
+  if (bucketAttrs.GSI2PK && bucketAttrs.GSI2SK) {
+    values[":gsi2pk"] = bucketAttrs.GSI2PK;
+    values[":gsi2sk"] = bucketAttrs.GSI2SK;
+    expr.push("#gsi2pk = :gsi2pk");
+    expr.push("#gsi2sk = :gsi2sk");
+  } else {
+    remove.push("#gsi2pk", "#gsi2sk");
+  }
+
   let condition = "attribute_exists(PK) AND attribute_exists(SK)";
   if (expectedRev !== undefined) {
-    // Treat missing rev as 0 for first-write compatibility.
-    // DynamoDB doesn't support if_not_exists() in ConditionExpression, so we use OR.
     condition += " AND ((attribute_not_exists(#rev) AND :expectedRev = :zero) OR #rev = :expectedRev)";
     values[":expectedRev"] = expectedRev;
   }
@@ -274,7 +350,7 @@ export async function updateTask(
     new UpdateCommand({
       TableName: TABLE(),
       Key: { PK: pkForUser(sub), SK: skForTask(taskId) },
-      UpdateExpression: "SET " + expr.join(", ") + (remove.length ? " REMOVE " + remove.join(", ") : ""),
+      UpdateExpression: "SET " + expr.join(", ") + (remove.length ? " REMOVE " + Array.from(new Set(remove)).join(", ") : ""),
       ExpressionAttributeNames: names,
       ExpressionAttributeValues: values,
       ConditionExpression: condition,
@@ -286,11 +362,8 @@ export async function updateTask(
 }
 
 export async function deleteTask(sub: string, taskId: string): Promise<boolean> {
-  if (await hasChildren(sub, taskId)) {
-    throw new HasChildrenError();
-  }
+  if (await hasChildren(sub, taskId)) throw new HasChildrenError();
 
-  // Delete task + lookup atomically.
   await ddb.send(
     new TransactWriteCommand({
       TransactItems: [
@@ -305,7 +378,6 @@ export async function deleteTask(sub: string, taskId: string): Promise<boolean> 
           Delete: {
             TableName: TABLE(),
             Key: { PK: pkForUser(sub), SK: `LOOKUP#${taskId}` },
-            // Lookup may be missing for pre-phase3 data; tolerate.
           },
         },
       ],
@@ -314,24 +386,11 @@ export async function deleteTask(sub: string, taskId: string): Promise<boolean> 
   return true;
 }
 
-// ----------------------------------------------------------------------
-// Phase 2: Subtasks (tree model)
-
 export async function createSubtask(sub: string, parentTaskId: string, task: Task): Promise<Task> {
-  // Phase 3 requires secure subtree membership; we store rootTaskId in LOOKUP items.
-  // To compute it without changing the Task/Subtask item key scheme, we require a parent lookup.
   const parentLookup = await getLookup(sub, parentTaskId);
-  if (!parentLookup) {
-    throw new ParentLookupMissingError();
-  }
+  if (!parentLookup) throw new ParentLookupMissingError();
   const rootTaskId = parentLookup.rootTaskId;
-
-  const item = {
-    PK: pkForUser(sub),
-    SK: skForSubtask(parentTaskId, task.taskId),
-    parentTaskId,
-    ...task,
-  };
+  const item = buildSubtaskItem(sub, parentTaskId, rootTaskId, { ...task, parentTaskId });
 
   await ddb.send(
     new TransactWriteCommand({
@@ -385,10 +444,6 @@ export async function listSubtasks(
   return { items, lastEvaluatedKey };
 }
 
-/**
- * Convenience helper for domain validation that needs the full child set.
- * Uses listSubtasks paging internally.
- */
 export async function listAllSubtasks(sub: string, parentTaskId: string, pageSize = 200): Promise<Task[]> {
   const out: Task[] = [];
   let lek: { PK: string; SK: string } | undefined = undefined;
@@ -401,15 +456,9 @@ export async function listAllSubtasks(sub: string, parentTaskId: string, pageSiz
   return out;
 }
 
-
 export async function getSubtask(sub: string, parentTaskId: string, taskId: string): Promise<Task | null> {
-  const r = await ddb.send(
-    new GetCommand({
-      TableName: TABLE(),
-      Key: { PK: pkForUser(sub), SK: skForSubtask(parentTaskId, taskId) },
-    })
-  );
-  return r.Item ? toTask(r.Item) : null;
+  const item = await getTaskItemByKey(sub, skForSubtask(parentTaskId, taskId));
+  return item ? toTask(item) : null;
 }
 
 export async function updateSubtask(
@@ -421,15 +470,18 @@ export async function updateSubtask(
   statusOverride?: TaskStatus,
   expectedRev?: number
 ): Promise<Task | null> {
-  // Reuse the same update semantics as root tasks, but with a different key.
+  const current = await getTaskItemByKey(sub, skForSubtask(parentTaskId, taskId));
+  if (!current) return null;
+  const rootTaskId = await resolveRootTaskIdForSubtask(sub, parentTaskId, taskId, current);
+  const indexed = applyPatchToIndexFields(current, patch, nowIso, taskId, rootTaskId);
+
   const expr: string[] = [];
   const remove: string[] = [];
   const names: Record<string, string> = { "#updatedAt": "updatedAt", "#rev": "rev" };
-  const values: Record<string, any> = { ":updatedAt": nowIso, ":inc": 1 };
+  const values: Record<string, any> = { ":updatedAt": nowIso, ":inc": 1, ":zero": 0 };
 
   expr.push("#updatedAt = :updatedAt");
   expr.push("#rev = if_not_exists(#rev, :zero) + :inc");
-  values[":zero"] = 0;
 
   if (patch.title !== undefined) {
     names["#title"] = "title";
@@ -449,7 +501,6 @@ export async function updateSubtask(
       expr.push("#dueDate = :dueDate");
     }
   }
-
   if ((patch as any).priority !== undefined) {
     names["#priority"] = "priority";
     if ((patch as any).priority === null) remove.push("#priority");
@@ -458,7 +509,6 @@ export async function updateSubtask(
       expr.push("#priority = :priority");
     }
   }
-
   if ((patch as any).effort !== undefined) {
     names["#effort"] = "effort";
     if ((patch as any).effort === null) remove.push("#effort");
@@ -467,7 +517,6 @@ export async function updateSubtask(
       expr.push("#effort = :effort");
     }
   }
-
   if ((patch as any).minimumDuration !== undefined) {
     names["#minimumDuration"] = "minimumDuration";
     if ((patch as any).minimumDuration === null) remove.push("#minimumDuration");
@@ -476,7 +525,6 @@ export async function updateSubtask(
       expr.push("#minimumDuration = :minimumDuration");
     }
   }
-
   if ((patch as any).attrs !== undefined) {
     names["#attrs"] = "attrs";
     if ((patch as any).attrs === null) remove.push("#attrs");
@@ -485,27 +533,21 @@ export async function updateSubtask(
       expr.push("#attrs = :attrs");
     }
   }
-
-
-  // Phase 4 (GTD)
   if ((patch as any).schemaVersion !== undefined) {
     names["#schemaVersion"] = "schemaVersion";
     values[":schemaVersion"] = (patch as any).schemaVersion;
     expr.push("#schemaVersion = :schemaVersion");
   }
-
   if ((patch as any).entityType !== undefined) {
     names["#entityType"] = "entityType";
     values[":entityType"] = (patch as any).entityType;
     expr.push("#entityType = :entityType");
   }
-
   if ((patch as any).state !== undefined) {
     names["#state"] = "state";
     values[":state"] = (patch as any).state;
     expr.push("#state = :state");
   }
-
   if ((patch as any).context !== undefined) {
     names["#context"] = "context";
     if ((patch as any).context === null) remove.push("#context");
@@ -514,7 +556,6 @@ export async function updateSubtask(
       expr.push("#context = :context");
     }
   }
-
   if ((patch as any).waitingFor !== undefined) {
     names["#waitingFor"] = "waitingFor";
     if ((patch as any).waitingFor === null) remove.push("#waitingFor");
@@ -531,6 +572,22 @@ export async function updateSubtask(
     expr.push("#status = :status");
   }
 
+  names["#rootTaskId"] = "rootTaskId";
+  values[":rootTaskId"] = indexed.rootTaskId;
+  expr.push("#rootTaskId = :rootTaskId");
+
+  const bucketAttrs = bucketIndexAttrs(sub, indexed);
+  names["#gsi2pk"] = "GSI2PK";
+  names["#gsi2sk"] = "GSI2SK";
+  if (bucketAttrs.GSI2PK && bucketAttrs.GSI2SK) {
+    values[":gsi2pk"] = bucketAttrs.GSI2PK;
+    values[":gsi2sk"] = bucketAttrs.GSI2SK;
+    expr.push("#gsi2pk = :gsi2pk");
+    expr.push("#gsi2sk = :gsi2sk");
+  } else {
+    remove.push("#gsi2pk", "#gsi2sk");
+  }
+
   let condition = "attribute_exists(PK) AND attribute_exists(SK)";
   if (expectedRev !== undefined) {
     condition += " AND ((attribute_not_exists(#rev) AND :expectedRev = :zero) OR #rev = :expectedRev)";
@@ -541,7 +598,7 @@ export async function updateSubtask(
     new UpdateCommand({
       TableName: TABLE(),
       Key: { PK: pkForUser(sub), SK: skForSubtask(parentTaskId, taskId) },
-      UpdateExpression: "SET " + expr.join(", ") + (remove.length ? " REMOVE " + remove.join(", ") : ""),
+      UpdateExpression: "SET " + expr.join(", ") + (remove.length ? " REMOVE " + Array.from(new Set(remove)).join(", ") : ""),
       ExpressionAttributeNames: names,
       ExpressionAttributeValues: values,
       ConditionExpression: condition,
@@ -553,9 +610,7 @@ export async function updateSubtask(
 }
 
 export async function deleteSubtask(sub: string, parentTaskId: string, taskId: string): Promise<boolean> {
-  if (await hasChildren(sub, taskId)) {
-    throw new HasChildrenError();
-  }
+  if (await hasChildren(sub, taskId)) throw new HasChildrenError();
 
   await ddb.send(
     new TransactWriteCommand({
@@ -577,4 +632,81 @@ export async function deleteSubtask(sub: string, parentTaskId: string, taskId: s
     })
   );
   return true;
+}
+
+export async function listBucketTasksByState(
+  sub: string,
+  state: WorkflowState,
+  limit: number,
+  exclusiveStartKey?: any
+): Promise<{ items: BucketTask[]; lastEvaluatedKey?: any }> {
+  const r = await ddb.send(
+    new QueryCommand({
+      TableName: TABLE(),
+      IndexName: GSI2(),
+      KeyConditionExpression: "GSI2PK = :pk",
+      ExpressionAttributeValues: { ":pk": gsi2pkForUserState(sub, state) },
+      ScanIndexForward: false,
+      Limit: limit,
+      ExclusiveStartKey: exclusiveStartKey,
+    })
+  );
+
+  const rawItems = (r.Items ?? []) as TaskItem[];
+  const rootIds = Array.from(
+    new Set(
+      rawItems
+        .map((item) => item.rootTaskId)
+        .filter((value): value is string => typeof value === "string" && value.length > 0)
+    )
+  );
+
+  const rootMap = new Map<string, Task>();
+  for (let i = 0; i < rootIds.length; i += 100) {
+    const chunk = rootIds.slice(i, i + 100);
+    const resp = await ddb.send(
+      new BatchGetCommand({
+        RequestItems: {
+          [TABLE()]: {
+            Keys: chunk.map((rootTaskId) => ({ PK: pkForUser(sub), SK: skForTask(rootTaskId) })),
+          },
+        },
+      })
+    );
+    for (const item of (resp.Responses?.[TABLE()] ?? []) as any[]) {
+      rootMap.set(item.taskId, toTask(item));
+    }
+  }
+
+  const items: BucketTask[] = rawItems.map((item) => {
+    const task = toTask(item);
+    const rootTaskId = item.rootTaskId;
+    const root = rootTaskId ? rootMap.get(rootTaskId) : undefined;
+    return {
+      ...task,
+      rootTaskId,
+      project: root && root.entityType === "project" ? { taskId: root.taskId, title: root.title } : undefined,
+    };
+  });
+
+  return { items, lastEvaluatedKey: r.LastEvaluatedKey };
+}
+
+export async function getBucketCounts(sub: string): Promise<Record<WorkflowState, number>> {
+  const counts = await Promise.all(
+    EXECUTION_STATES.map(async (state) => {
+      const r = await ddb.send(
+        new QueryCommand({
+          TableName: TABLE(),
+          IndexName: GSI2(),
+          KeyConditionExpression: "GSI2PK = :pk",
+          ExpressionAttributeValues: { ":pk": gsi2pkForUserState(sub, state) },
+          Select: "COUNT",
+        })
+      );
+      return [state, r.Count ?? 0] as const;
+    })
+  );
+
+  return Object.fromEntries(counts) as Record<WorkflowState, number>;
 }

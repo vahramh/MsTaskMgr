@@ -6,6 +6,7 @@ import type { Task, WorkflowState, EntityType } from "@tm/shared";
 import { useAuth } from "../../auth/AuthContext";
 import InlineAlert from "../../components/InlineAlert";
 import { useTasks } from "./useTasks";
+import { useBucketTasks } from "./useBucketTasks";
 import { ApiError } from "../../api/http";
 import {
   createSubtask,
@@ -611,9 +612,9 @@ export default function TasksPage() {
     reload,
     loadMore,
     create,
-    toggleComplete,
-    remove,
-    patch,
+    toggleCompleteTask,
+    removeTask,
+    patchTask,
   } = useTasks(tokens);
 
   const [searchParams, setSearchParams] = useSearchParams();
@@ -646,6 +647,20 @@ export default function TasksPage() {
   ].includes(viewParam)
     ? (viewParam as any)
     : "inbox");
+
+  const bucketView: WorkflowState | null = view === "projects" ? null : view;
+  const {
+    items: bucketItems,
+    counts: bucketCounts,
+    hasMore: bucketHasMore,
+    initialLoading: bucketInitialLoading,
+    loadingMore: bucketLoadingMore,
+    error: bucketError,
+    clearError: clearBucketError,
+    reload: reloadBucket,
+    reloadCounts: reloadBucketCounts,
+    loadMore: loadMoreBucket,
+  } = useBucketTasks(tokens, bucketView);
 
   // ===== Phase 6 PR1: tabs + counts =====
   type ViewKey = WorkflowState | "projects";
@@ -987,6 +1002,7 @@ export default function TasksPage() {
       minimumDuration: minimumDurationValue ? { unit: minimumDurationUnit, value: Number(minimumDurationValue) } : undefined,
       attrs: attrsJsonTrim ? (JSON.parse(attrsJsonTrim) as any) : undefined,
     });
+    await refreshExecutionModel();
     setTitle("");
     setDescription("");
     setDueDate("");
@@ -1034,8 +1050,14 @@ export default function TasksPage() {
 
   const clearAllErrors = useCallback(() => {
     clearError();
+    clearBucketError();
     setSubError(null);
-  }, [clearError]);
+  }, [clearError, clearBucketError]);
+
+  const refreshExecutionModel = useCallback(async () => {
+    await reloadBucketCounts();
+    if (view !== "projects") await reloadBucket();
+  }, [reloadBucketCounts, view, reloadBucket]);
 
   const isExpanded = useCallback((taskId: string) => Boolean(expanded[taskId]), [expanded]);
 
@@ -1110,23 +1132,6 @@ export default function TasksPage() {
     void loadChildren(focusId);
     setExpandedOn(focusId, true);
   }, [focusId, view, loadChildren, setExpandedOn]);
-
-  useEffect(() => {
-    if (!tokens) return;
-    if (view === "projects") return;
-
-    const rootProjects = items.filter(
-      (t) => deriveEntityType(t) === "project" && !t.parentTaskId
-    );
-
-    for (const project of rootProjects) {
-      const st = getSubtree(project.taskId);
-
-      if (!st.loaded && !st.loading) {
-        void loadChildren(project.taskId);
-      }
-    }
-  }, [tokens, view, items, getSubtree, loadChildren]);  
 
   React.useEffect(() => {
     if (!editId) return;
@@ -1237,6 +1242,7 @@ export default function TasksPage() {
       setSubPending(parentTaskId, optimistic.taskId, true);
       try {
         const r = await createSubtask(tokens, parentTaskId, { title, entityType: "action", state: "inbox" });
+        await refreshExecutionModel();
         setSubtreesSync((prev) => {
           const st = prev[parentTaskId] ?? { items: [], loaded: true, loading: false };
           return {
@@ -1261,7 +1267,7 @@ export default function TasksPage() {
         setSubPending(parentTaskId, optimistic.taskId, false);
       }
     },
-    [tokens, newChildTitle, clearAllErrors, setSubPending]
+    [tokens, newChildTitle, clearAllErrors, setSubPending, refreshExecutionModel]
   );
 
   const toggleSubtaskSpeech = useCallback((parentTaskId: string) => {
@@ -1305,9 +1311,10 @@ export default function TasksPage() {
     ) => {
       if (!tokens) return;
 
-      // Root task -> delegate to existing hook (preserves invariants).
+      // Root task -> delegate to root hook, even if this root is only visible via bucket query.
       if (!node.parentTaskId) {
-        await patch(node.taskId, partial as any, overrideStatus);
+        await patchTask(node, partial as any, overrideStatus);
+        await refreshExecutionModel();
         return;
       }
 
@@ -1353,6 +1360,7 @@ export default function TasksPage() {
           status: overrideStatus ?? partial.status,
           expectedRev: prev.rev,
         });
+        await refreshExecutionModel();
         setSubtreesSync((prevMap) => {
           const st = prevMap[parentTaskId] ?? { items: [], loaded: true, loading: false };
           return {
@@ -1382,7 +1390,7 @@ export default function TasksPage() {
         setSubPending(parentTaskId, prev.taskId, false);
       }
     },
-    [tokens, patch, clearAllErrors, setSubPending, loadChildren]
+    [tokens, patchTask, clearAllErrors, setSubPending, loadChildren, refreshExecutionModel]
   );
 
   const quickTransition = useCallback(
@@ -1451,7 +1459,8 @@ export default function TasksPage() {
 
       // Root task -> delegate to hook (complete/reopen endpoints).
       if (!node.parentTaskId) {
-        await toggleComplete(node);
+        await toggleCompleteTask(node);
+        await refreshExecutionModel();
         return;
       }
 
@@ -1485,6 +1494,7 @@ export default function TasksPage() {
 
         try {
           const r = await reopenSubtask(tokens, parentTaskId, prev.taskId, prev.rev);
+          await refreshExecutionModel();
           setSubtreesSync((prevMap) => {
             const st = prevMap[parentTaskId] ?? { items: [], loaded: true, loading: false };
             return {
@@ -1520,14 +1530,15 @@ export default function TasksPage() {
       // complete subtask (state transition)
       await patchNode(node, { state: "completed" } as any);
     },
-    [tokens, toggleComplete, clearAllErrors, setSubPending, setSubtrees, loadChildren, patchNode]
+    [tokens, toggleCompleteTask, clearAllErrors, setSubPending, setSubtrees, loadChildren, patchNode, refreshExecutionModel]
   );
 
   const deleteNode = useCallback(
     async (node: Task) => {
       if (!tokens) return;
       if (!node.parentTaskId) {
-        await remove(node);
+        await removeTask(node);
+        await refreshExecutionModel();
         return;
       }
 
@@ -1545,6 +1556,7 @@ export default function TasksPage() {
       });
       try {
         await deleteSubtask(tokens, parentTaskId, node.taskId);
+        await refreshExecutionModel();
       } catch (e) {
         setSubtreesSync((prevMap) => {
           const st = prevMap[parentTaskId] ?? { items: [], loaded: true, loading: false };
@@ -1560,7 +1572,7 @@ export default function TasksPage() {
         setSubPending(parentTaskId, node.taskId, false);
       }
     },
-    [tokens, remove, clearAllErrors, getSubtree, setSubPending, loadChildren]
+    [tokens, removeTask, clearAllErrors, getSubtree, setSubPending, loadChildren, refreshExecutionModel]
   );
 
   const pendingFor = useCallback(
@@ -2104,62 +2116,19 @@ export default function TasksPage() {
     ]
   );
 
-  const loadedSubtaskItems = useMemo(() => {
-    const flat: Task[] = [];
-    const seen = new Set<string>();
-
-    for (const st of Object.values(subtrees)) {
-      for (const t of st.items ?? []) {
-        if (seen.has(t.taskId)) continue;
-        seen.add(t.taskId);
-        flat.push(t);
-      }
-    }
-
-    return flat;
-  }, [subtrees]);
-
-  const bucketSourceItems = useMemo(() => {
-    const combined: Task[] = [];
-    const seen = new Set<string>();
-
-    for (const t of items) {
-      if (seen.has(t.taskId)) continue;
-      seen.add(t.taskId);
-      combined.push(t);
-    }
-
-    for (const t of loadedSubtaskItems) {
-      if (seen.has(t.taskId)) continue;
-      seen.add(t.taskId);
-      combined.push(t);
-    }
-
-    return combined;
-  }, [items, loadedSubtaskItems]);
-
   const viewCounts = useMemo(() => {
     const counts: Record<ViewKey, number> = {
-      inbox: 0,
-      next: 0,
-      waiting: 0,
-      scheduled: 0,
-      someday: 0,
-      reference: 0,
-      completed: 0,
-      projects: 0,
+      inbox: bucketCounts.inbox ?? 0,
+      next: bucketCounts.next ?? 0,
+      waiting: bucketCounts.waiting ?? 0,
+      scheduled: bucketCounts.scheduled ?? 0,
+      someday: bucketCounts.someday ?? 0,
+      reference: bucketCounts.reference ?? 0,
+      completed: bucketCounts.completed ?? 0,
+      projects: items.filter((t) => deriveEntityType(t) === "project" && !t.parentTaskId).length,
     };
-
-    for (const t of bucketSourceItems) {
-      if (deriveEntityType(t) === "project") {
-        if (!t.parentTaskId) counts.projects += 1;
-        continue;
-      }
-      const s = deriveState(t);
-      counts[s] = (counts[s] ?? 0) + 1;
-    }
     return counts;
-  }, [bucketSourceItems]);
+  }, [bucketCounts, items]);
 
   // ===== Phase 6 PR4.2: focus filtering in Projects view =====
   const visibleItems = useMemo(() => {
@@ -2169,13 +2138,18 @@ export default function TasksPage() {
       return projects;
     }
 
-    return bucketSourceItems.filter(
-      (t) => deriveEntityType(t) !== "project" && deriveState(t) === view
-    );
-  }, [items, bucketSourceItems, view, focusId]);
+    return bucketItems;
+  }, [items, bucketItems, view, focusId]);
   // ===========================================================
 
-  const empty = !initialLoading && visibleItems.length === 0;
+  const pageInitialLoading = view === "projects" ? initialLoading : bucketInitialLoading;
+  const pageLoadingMore = view === "projects" ? loadingMore : bucketLoadingMore;
+  const pageHasMore = view === "projects" ? hasMore : bucketHasMore;
+  const pageLoadMore = view === "projects" ? loadMore : loadMoreBucket;
+
+  const empty = !pageInitialLoading && visibleItems.length === 0;
+
+  const activeError = error ?? bucketError;
 
   useEffect(() => {
     if (!scrollToId) return;
@@ -2262,48 +2236,48 @@ export default function TasksPage() {
 
           <button
             className="btn btn-secondary"
-            onClick={reload}
-            disabled={initialLoading || loadingMore || creating}
+            onClick={() => { void (view === "projects" ? reload() : reloadBucket()); void reloadBucketCounts(); }}
+            disabled={pageInitialLoading || pageLoadingMore || creating}
           >
             Refresh
           </button>
         </div>
       </div>
 
-      {error ? (
+      {activeError ? (
         <InlineAlert
           tone="error"
-          title={error.message}
+          title={activeError.message}
           message={
             [
-              typeof error.status === "number" ? `HTTP ${error.status}` : null,
-              error.code ? error.code : null,
+              typeof activeError.status === "number" ? `HTTP ${activeError.status}` : null,
+              activeError.code ? activeError.code : null,
             ]
               .filter(Boolean)
               .join(" · ") || undefined
           }
           actions={
             <div className="row" style={{ flexWrap: "wrap" }}>
-              {error.requestId ? (
+              {activeError.requestId ? (
                 <>
                   <span className="help" style={{ alignSelf: "center" }}>
-                    Request id: <code>{error.requestId}</code>
+                    Request id: <code>{activeError.requestId}</code>
                   </span>
                   <button
                     className="btn btn-secondary"
                     type="button"
                     onClick={() => {
-                      void tryCopy(error.requestId!);
+                      void tryCopy(activeError.requestId!);
                     }}
                   >
                     Copy
                   </button>
                 </>
               ) : null}
-              <button className="btn btn-secondary" type="button" onClick={clearError}>
+              <button className="btn btn-secondary" type="button" onClick={clearAllErrors}>
                 Dismiss
               </button>
-              <button className="btn" type="button" onClick={reload}>
+              <button className="btn" type="button" onClick={() => { void reload(); if (view !== "projects") void reloadBucket(); void reloadBucketCounts(); }}>
                 Retry
               </button>
             </div>
@@ -2585,7 +2559,7 @@ export default function TasksPage() {
       ) : null}
 
       <div style={{ marginTop: 16 }}>
-        {initialLoading ? (
+        {pageInitialLoading ? (
           <TaskListSkeleton count={4} />
         ) : view === "projects" && focusId ? (
           <div style={{ display: "grid", gap: 10 }}>
@@ -3459,15 +3433,15 @@ export default function TasksPage() {
 
       <div className="row space-between" style={{ marginTop: 14 }}>
         <div className="help">
-          {items.length ? `${items.length} task${items.length === 1 ? "" : "s"}` : ""}
+          {visibleItems.length ? `${visibleItems.length} task${visibleItems.length === 1 ? "" : "s"}` : ""}
         </div>
         <div>
-          {hasMore ? (
-            <button className="btn" onClick={loadMore} disabled={loadingMore || initialLoading}>
-              {loadingMore ? "Loading…" : "Load more"}
+          {pageHasMore ? (
+            <button className="btn" onClick={pageLoadMore} disabled={pageLoadingMore || pageInitialLoading}>
+              {pageLoadingMore ? "Loading…" : "Load more"}
             </button>
           ) : (
-            <span className="help">{items.length ? "End of list" : ""}</span>
+            <span className="help">{visibleItems.length ? "End of list" : ""}</span>
           )}
         </div>
       </div>

@@ -154,6 +154,36 @@ export type UpdateTaskRequest = {
 
 export type UpdateTaskResponse = { task: Task };
 
+
+// ----------------------------------------------------------------------
+// Execution bucket read model
+
+export type BucketTask = Task & {
+  /**
+   * Root task id for this task's hierarchy. For root items, this is the task's own id.
+   * For nested tasks, this is the owning root task id.
+   */
+  rootTaskId?: string;
+
+  /**
+   * Present when the owning root is a project, so bucket UIs can show project context
+   * without traversing the tree.
+   */
+  project?: {
+    taskId: string;
+    title: string;
+  };
+};
+
+export type ListBucketTasksResponse = {
+  items: BucketTask[];
+  nextToken?: string;
+};
+
+export type BucketCountsResponse = {
+  counts: Record<WorkflowState, number>;
+};
+
 // ----------------------------------------------------------------------
 // Phase 2: Subtasks (tree model)
 

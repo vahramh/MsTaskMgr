@@ -5,6 +5,8 @@ import type {
   CreateSubtaskRequest,
   CreateSubtaskResponse,
   ListTasksResponse,
+  ListBucketTasksResponse,
+  BucketCountsResponse,
   ListSubtasksResponse,
   UpdateTaskRequest,
   UpdateTaskResponse,
@@ -35,6 +37,29 @@ export async function listTasks(
   });
 }
 
+
+
+export async function listBucketTasks(
+  tokens: CognitoTokens,
+  state: string,
+  params?: { limit?: number; nextToken?: string },
+  signal?: AbortSignal
+): Promise<ListBucketTasksResponse> {
+  return apiFetchJson<ListBucketTasksResponse>({
+    tokens,
+    path: `/task-buckets/${state}`,
+    query: { limit: params?.limit, nextToken: params?.nextToken },
+    signal,
+  });
+}
+
+export async function getBucketCounts(tokens: CognitoTokens, signal?: AbortSignal): Promise<BucketCountsResponse> {
+  return apiFetchJson<BucketCountsResponse>({
+    tokens,
+    path: `/task-buckets/counts`,
+    signal,
+  });
+}
 export async function updateTask(
   tokens: CognitoTokens,
   taskId: string,

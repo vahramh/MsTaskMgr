@@ -1,0 +1,191 @@
+diff --git a/infra/template.yaml b/infra/template.yaml
+index 1111111..2222222 100644
+--- a/infra/template.yaml
++++ b/infra/template.yaml
+@@
+ Globals:
+   Function:
+     Runtime: nodejs20.x
+     Timeout: 10
+     MemorySize: 256
+@@
+     Environment:
+       Variables:
+         TASKS_TABLE: !Ref TasksTable
+         TASKS_GSI1: GSI1
++        TASKS_GSI2: GSI2
+
+ Resources:
+
+   TasksTable:
+     Type: AWS::DynamoDB::Table
+@@
+       GlobalSecondaryIndexes:
+         - IndexName: GSI1
+           KeySchema:
+             - AttributeName: GSI1PK
+               KeyType: HASH
+             - AttributeName: GSI1SK
+               KeyType: RANGE
+           Projection:
+             ProjectionType: ALL
++
++        - IndexName: GSI2
++          KeySchema:
++            - AttributeName: GSI2PK
++              KeyType: HASH
++            - AttributeName: GSI2SK
++              KeyType: RANGE
++          Projection:
++            ProjectionType: ALL
+
+diff --git a/services/api/src/tasks/keys.ts b/services/api/src/tasks/keys.ts
+index 1111111..2222222 100644
+--- a/services/api/src/tasks/keys.ts
++++ b/services/api/src/tasks/keys.ts
+@@
+ export function bucketKey(sub: string, state: string) {
+   return `USER#${sub}#STATE#${state}`;
+ }
+
+ export function bucketSort(updatedAt: string, taskId: string) {
+   return `UPDATED#${updatedAt}#${taskId}`;
+ }
+
+diff --git a/services/api/src/tasks/repo.ts b/services/api/src/tasks/repo.ts
+index 1111111..2222222 100644
+--- a/services/api/src/tasks/repo.ts
++++ b/services/api/src/tasks/repo.ts
+@@
+ import { bucketKey, bucketSort } from "./keys";
+
+ export function buildBucketIndex(task: any, sub: string) {
+   if (task.entityType === "project") {
+     return {};
+   }
+
+   return {
+     GSI2PK: bucketKey(sub, task.state),
+     GSI2SK: bucketSort(task.updatedAt, task.taskId)
+   };
+ }
+
+diff --git a/services/api/src/handlers/tasks-buckets-list.ts b/services/api/src/handlers/tasks-buckets-list.ts
+new file mode 100644
+--- /dev/null
++++ b/services/api/src/handlers/tasks-buckets-list.ts
+@@
+ import { QueryCommand } from "@aws-sdk/lib-dynamodb";
+ import { db } from "../db";
+
+ export async function handler(event: any) {
+
+   const state = event.pathParameters.state;
+   const sub = event.requestContext.authorizer.jwt.claims.sub;
+
+   const result = await db.send(new QueryCommand({
+     TableName: process.env.TASKS_TABLE,
+     IndexName: process.env.TASKS_GSI2,
+     KeyConditionExpression: "GSI2PK = :pk",
+     ExpressionAttributeValues: {
+       ":pk": `USER#${sub}#STATE#${state}`
+     }
+   }));
+
+   return {
+     statusCode: 200,
+     body: JSON.stringify(result.Items ?? [])
+   };
+ }
+
+diff --git a/services/api/src/handlers/tasks-buckets-counts.ts b/services/api/src/handlers/tasks-buckets-counts.ts
+new file mode 100644
+--- /dev/null
++++ b/services/api/src/handlers/tasks-buckets-counts.ts
+@@
+ import { QueryCommand } from "@aws-sdk/lib-dynamodb";
+ import { db } from "../db";
+
+ const states = [
+   "inbox",
+   "next",
+   "waiting",
+   "scheduled",
+   "someday",
+   "reference",
+   "completed"
+ ];
+
+ export async function handler(event: any) {
+
+   const sub = event.requestContext.authorizer.jwt.claims.sub;
+
+   const counts: any = {};
+
+   for (const state of states) {
+
+     const result = await db.send(new QueryCommand({
+       TableName: process.env.TASKS_TABLE,
+       IndexName: process.env.TASKS_GSI2,
+       KeyConditionExpression: "GSI2PK = :pk",
+       ExpressionAttributeValues: {
+         ":pk": `USER#${sub}#STATE#${state}`
+       },
+       Select: "COUNT"
+     }));
+
+     counts[state] = result.Count ?? 0;
+   }
+
+   return {
+     statusCode: 200,
+     body: JSON.stringify(counts)
+   };
+ }
+
+diff --git a/apps/web/src/features/tasks/api.ts b/apps/web/src/features/tasks/api.ts
+index 1111111..2222222 100644
+--- a/apps/web/src/features/tasks/api.ts
++++ b/apps/web/src/features/tasks/api.ts
+@@
+ export async function fetchBucket(state: string) {
+   const r = await fetch(`/task-buckets/${state}`);
+   return r.json();
+ }
+
+ export async function fetchBucketCounts() {
+   const r = await fetch(`/task-buckets/counts`);
+   return r.json();
+ }
+
+diff --git a/apps/web/src/features/tasks/useBucketTasks.ts b/apps/web/src/features/tasks/useBucketTasks.ts
+new file mode 100644
+--- /dev/null
++++ b/apps/web/src/features/tasks/useBucketTasks.ts
+@@
+ import { useEffect, useState } from "react";
+ import { fetchBucket } from "./api";
+
+ export function useBucketTasks(state: string) {
+
+   const [tasks, setTasks] = useState<any[]>([]);
+
+   useEffect(() => {
+     fetchBucket(state).then(setTasks);
+   }, [state]);
+
+   return tasks;
+ }
+
+diff --git a/apps/web/src/features/tasks/TasksPage.tsx b/apps/web/src/features/tasks/TasksPage.tsx
+index 1111111..2222222 100644
+--- a/apps/web/src/features/tasks/TasksPage.tsx
++++ b/apps/web/src/features/tasks/TasksPage.tsx
+@@
+ import { useBucketTasks } from "./useBucketTasks";
+
+ const bucketTasks = useBucketTasks(currentView);
+
+ return (
+   <TaskList tasks={bucketTasks} />
+ );

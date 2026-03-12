@@ -18,6 +18,14 @@ export function gsi1skForCreated(createdAt: string, taskId: string): string {
   return `CREATED#${createdAt}#${taskId}`;
 }
 
+export function gsi2pkForUserState(sub: string, state: string): string {
+  return `${pkForUser(sub)}#STATE#${state}`;
+}
+
+export function gsi2skForBucket(updatedAt: string, taskId: string): string {
+  return `UPDATED#${updatedAt}#${taskId}`;
+}
+
 // ----------------------------------------------------------------------
 // Phase 3: Sharing + secure subtree membership lookups
 
