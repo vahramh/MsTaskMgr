@@ -1,196 +1,37 @@
-import type { DurationEstimate, EffortEstimate, TaskPriority, TodayProjectHealthIssue, TodayTask } from "@tm/shared";
-import { buildChildrenMap, collectDescendants } from "./hierarchy";
+import { computeProjectSignals } from "./projectSignals";
+import type { Task } from "@tm/shared";
 
-export const TODAY_CONSTANTS = {
-  PRIORITY_WEIGHT: {
-    1: 10,
-    2: 30,
-    3: 60,
-    4: 85,
-    5: 110,
-  } as Record<TaskPriority, number>,
-  DUE_OVERDUE: 120,
-  DUE_TODAY: 90,
-  DUE_SOON: 50,
-  STALE_DAYS: 7,
-  WAITING_FOLLOWUP_DAYS: 7,
-  CONTEXT_BONUS: 8,
-  MAX_RECOMMENDED: 20,
-};
+const PROJECT_LEVERAGE_WEIGHT = 0.7;
 
-function startOfDay(d: Date): Date {
-  return new Date(d.getFullYear(), d.getMonth(), d.getDate());
-}
+export function scoreTask(
+  task: Task,
+  projectSignals?: ReturnType<typeof computeProjectSignals>
+): number {
 
-function daysBetween(from: Date, to: Date): number {
-  return Math.floor((to.getTime() - from.getTime()) / 86400000);
-}
+  let score = 0;
 
-export function daysFromToday(dateIso: string, now: Date): number {
-  const due = startOfDay(new Date(dateIso));
-  const today = startOfDay(now);
-  return daysBetween(today, due);
-}
+  if (task.priority) score += task.priority * 1.2;
 
-function dueScore(task: TodayTask, now: Date): number {
-  if (!task.dueDate) return 0;
-  const diff = daysFromToday(task.dueDate, now);
-  if (diff < 0) return TODAY_CONSTANTS.DUE_OVERDUE;
-  if (diff === 0) return TODAY_CONSTANTS.DUE_TODAY;
-  if (diff <= 3) return TODAY_CONSTANTS.DUE_SOON;
-  return 0;
-}
+  if (task.dueDate) {
+    const days =
+      (new Date(task.dueDate).getTime() - Date.now()) /
+      86400000;
 
-function priorityScore(task: TodayTask): number {
-  if (!task.priority) return 0;
-  return TODAY_CONSTANTS.PRIORITY_WEIGHT[task.priority] ?? 0;
-}
-
-function ageDays(task: TodayTask, now: Date): number {
-  const updated = new Date(task.updatedAt || task.createdAt);
-  return Math.max(0, Math.floor((now.getTime() - updated.getTime()) / 86400000));
-}
-
-function stalenessScore(task: TodayTask, now: Date): number {
-  const days = ageDays(task, now);
-  if (days >= 60) return 40;
-  if (days >= 30) return 28;
-  if (days >= 14) return 18;
-  if (days >= TODAY_CONSTANTS.STALE_DAYS) return 10;
-  return 0;
-}
-
-export function effortToMinutes(effort?: EffortEstimate): number | null {
-  if (!effort) return null;
-  if (!Number.isFinite(effort.value) || effort.value <= 0) return null;
-  if (effort.unit === "hours") return Math.round(effort.value * 60);
-  return Math.round(effort.value * 8 * 60);
-}
-
-export function minimumDurationToMinutes(minimumDuration?: DurationEstimate): number | null {
-  if (!minimumDuration) return null;
-  if (!Number.isFinite(minimumDuration.value) || minimumDuration.value <= 0) return null;
-  if (minimumDuration.unit === "hours") return Math.round(minimumDuration.value * 60);
-  return Math.round(minimumDuration.value);
-}
-
-function effortScore(task: TodayTask): number {
-  const minutes = effortToMinutes(task.effort);
-  if (minutes === null) return 0;
-  if (minutes <= 15) return 24;
-  if (minutes <= 60) return 12;
-  if (minutes <= 180) return 0;
-  if (minutes <= 480) return -10;
-  return -22;
-}
-
-function minimumDurationScore(task: TodayTask): number {
-  const minutes = minimumDurationToMinutes(task.minimumDuration);
-  if (minutes === null) return 0;
-  if (minutes <= 15) return 10;
-  if (minutes <= 30) return 18;
-  if (minutes <= 60) return 24;
-  if (minutes <= 90) return 12;
-  if (minutes <= 120) return 0;
-  if (minutes <= 180) return -10;
-  return -20;
-}
-
-function planningPenalty(task: TodayTask): number {
-  const effortMinutes = effortToMinutes(task.effort);
-  const blockMinutes = minimumDurationToMinutes(task.minimumDuration);
-  if (effortMinutes === null || blockMinutes !== null) return 0;
-  if (effortMinutes >= 8 * 60) return -14;
-  if (effortMinutes >= 4 * 60) return -10;
-  if (effortMinutes >= 2 * 60) return -6;
-  return 0;
-}
-
-function contextScore(task: TodayTask): number {
-  return task.context?.trim() ? TODAY_CONSTANTS.CONTEXT_BONUS : 0;
-}
-
-function workflowScore(task: TodayTask): number {
-  switch (task.state) {
-    case "next":
-      return 40;
-    case "waiting":
-      return 10;
-    case "scheduled":
-      return 5;
-    case "someday":
-      return -30;
-    case "reference":
-      return -100;
-    case "completed":
-      return -1000;
-    case "inbox":
-    default:
-      return 0;
+    if (days <= 0) score += 4;
+    else if (days <= 3) score += 2;
   }
-}
 
-export function scoreTask(task: TodayTask, now: Date): number {
-  return (
-    priorityScore(task) +
-    dueScore(task, now) +
-    stalenessScore(task, now) +
-    workflowScore(task) +
-    effortScore(task) +
-    minimumDurationScore(task) +
-    planningPenalty(task) +
-    contextScore(task)
-  );
-}
+  if (projectSignals) {
 
-export function rankTasks(tasks: TodayTask[], now: Date): TodayTask[] {
-  return [...tasks]
-    .map((task) => ({ task, score: scoreTask(task, now) }))
-    .sort((a, b) => {
-      if (b.score !== a.score) return b.score - a.score;
-      return new Date(a.task.updatedAt).getTime() - new Date(b.task.updatedAt).getTime();
-    })
-    .map((x) => x.task);
-}
+    if (projectSignals.clarity === "needsNextAction")
+      score += PROJECT_LEVERAGE_WEIGHT;
 
-export function isWaitingFollowUp(task: TodayTask, now: Date): boolean {
-  if (task.state !== "waiting") return false;
-  return ageDays(task, now) >= TODAY_CONSTANTS.WAITING_FOLLOWUP_DAYS;
-}
+    if (projectSignals.blockage === "waiting")
+      score += PROJECT_LEVERAGE_WEIGHT * 1.5;
 
-export function isDueToday(task: TodayTask, now: Date): boolean {
-  if (!task.dueDate) return false;
-  return daysFromToday(task.dueDate, now) === 0;
-}
+    if (projectSignals.momentum === "stalled")
+      score += PROJECT_LEVERAGE_WEIGHT * 1.2;
+  }
 
-export function isOverdue(task: TodayTask, now: Date): boolean {
-  if (!task.dueDate) return false;
-  return daysFromToday(task.dueDate, now) < 0;
-}
-
-export function buildProjectHealth(tasks: TodayTask[], now: Date): TodayProjectHealthIssue[] {
-  const childrenMap = buildChildrenMap(tasks);
-  const projects = tasks.filter((task) => task.entityType === "project" && !task.parentTaskId && task.state !== "completed");
-  return projects
-    .map((project) => {
-      const descendants = collectDescendants(project, childrenMap);
-      const openDescendants = descendants.filter((task) => task.state !== "completed" && task.state !== "reference");
-      const openActions = openDescendants.filter((task) => task.entityType !== "project");
-      const nextActions = openActions.filter((task) => task.state === "next");
-      const somedayActions = openActions.filter((task) => task.state === "someday");
-      const stalledWaiting = openActions.filter((task) => isWaitingFollowUp(task, now));
-      const issues: TodayProjectHealthIssue["issues"] = [];
-      if (nextActions.length === 0) issues.push("noNext");
-      if (openActions.length > 0 && somedayActions.length === openActions.length) issues.push("onlySomeday");
-      if (stalledWaiting.length > 0) issues.push("stalledWaiting");
-      return {
-        project,
-        issues,
-        nextActions: nextActions.length,
-        stalledWaiting: stalledWaiting.length,
-        openActions: openActions.length,
-      };
-    })
-    .filter((item) => item.issues.length > 0)
-    .sort((a, b) => b.issues.length - a.issues.length || a.project.title.localeCompare(b.project.title));
+  return score;
 }

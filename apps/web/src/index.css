@@ -1,10 +1,17 @@
 :root {
   color-scheme: light;
-  font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+  font-family: Inter, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   line-height: 1.5;
   font-weight: 400;
-  color: #111827;
-  background-color: #f9fafb;
+  color: #111318;
+  background-color: #f6f7f9;
+  --color-primary: #3b5ccc;
+  --color-surface: #ffffff;
+  --color-border: #e3e6eb;
+  --color-divider: #e8ebf0;
+  --color-text-primary: #111318;
+  --color-text-secondary: #5b6270;
+  --color-text-tertiary: #737b8c;
 
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
@@ -15,9 +22,19 @@
   box-sizing: border-box;
 }
 
+html,
+body {
+  overflow-x: hidden;
+}
+
 body {
   margin: 0;
   min-width: 320px;
+  min-height: 100vh;
+  background: #f6f7f9;
+}
+
+#root {
   min-height: 100vh;
 }
 
@@ -38,9 +55,4 @@ button {
 
 ::placeholder {
   color: #9ca3af;
-}
-
-/* === Phase 6 PR5+PR6: prevent page-level horizontal scroll (tabs can scroll) === */
-html, body {
-  overflow-x: hidden;
 }

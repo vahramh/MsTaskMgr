@@ -10,12 +10,9 @@ export default function App() {
   return (
     <Routes>
       <Route path="/auth/callback" element={<AuthCallback />} />
-
-      {/* Public landing */}
       <Route path="/" element={<Home />} />
+      <Route path="/signin" element={<Home />} />
       <Route path="/help" element={<HelpPage />} />
-
-      {/* Protected app area */}
       <Route
         path="/app/*"
         element={
@@ -24,8 +21,6 @@ export default function App() {
           </ProtectedRoute>
         }
       />
-
-      {/* Catch-all */}
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );

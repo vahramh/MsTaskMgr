@@ -22,6 +22,7 @@ import { useTaskCreateController } from "./hooks/useTaskCreateController";
 import { useTaskShareController } from "./hooks/useTaskShareController";
 import { deriveEntityType, deriveState, dueTone, fmtDue, formatTime, renderTaskStateBadge, stateLabel, TaskListSkeleton } from "./taskPresentation";
 import { parseVoiceTaskCapture, promptDueDate, promptWaitingFor, speechErrorLabel } from "./voiceTaskCapture";
+import { computeFocusedProjectDiagnostics } from "./projectDiagnostics";
 
 async function tryCopy(text: string): Promise<void> {
   try {
@@ -210,6 +211,12 @@ export default function TasksPage() {
     }
     return counts;
   }, [focusId, subtrees]);
+
+  const focusedProjectDiagnostics = useMemo(() => {
+    if (!focusedProject || !focusId) return null;
+    const subtree = subtrees[focusId];
+    return computeFocusedProjectDiagnostics(focusedProject, subtree?.items ?? [], new Date());
+  }, [focusedProject, focusId, subtrees]);
 
   const taskPresentation = useMemo<TaskPresentationHelpers>(() => ({
     deriveState,
@@ -479,6 +486,7 @@ export default function TasksPage() {
                 onEdit={startEdit}
                 helpers={taskPresentation}
                 hygieneSignals={getHygieneSignals(focusedProject, new Date())}
+                diagnostics={focusedProjectDiagnostics}
               />
             ) : null}
           >

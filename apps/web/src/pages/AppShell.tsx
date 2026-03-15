@@ -11,13 +11,9 @@ function TabLink({ to, label }: { to: string; label: string }) {
   return (
     <NavLink
       to={to}
-      style={({ isActive }) => ({
-        padding: "8px 10px",
-        borderRadius: 10,
-        border: "1px solid #e5e7eb",
-        background: isActive ? "#111827" : "white",
-        color: isActive ? "white" : "#111827",
-      })}
+      className={({ isActive }) =>
+        isActive ? "shell-tab shell-tab-active" : "shell-tab"
+      }
     >
       {label}
     </NavLink>
@@ -30,47 +26,49 @@ export default function AppShell() {
   return (
     <div className="app-shell">
       <div className="container">
-        <div className="row space-between" style={{ marginBottom: 14 }}>
-          <div>
-            <div style={{ fontSize: 22, fontWeight: 900 }}>Task Manager</div>
-            <div style={{ fontSize: 13, color: "#6b7280" }}>Phase 1 MVP</div>
+        <header className="shell-header sticky-bar">
+          <div className="shell-brand-row">
+            <div className="shell-brand">
+              <img
+                src="/branding/egs-logo-mark.svg"
+                alt="Execution Guidance System"
+                className="shell-brand-mark"
+              />
+              <div className="shell-brand-copy">
+                <div className="shell-brand-eyebrow">Execution Guidance System</div>
+                <div className="shell-brand-title">Execution cockpit</div>
+              </div>
+            </div>
+
+            <div className="shell-header-actions">
+              <button className="btn btn-secondary" onClick={logout}>
+                Sign out
+              </button>
+            </div>
           </div>
-          <div className="row" style={{ gap: 10 }}>
-            <button className="btn btn-secondary" onClick={() => window.location.assign("/")}>
-              Home
-            </button>
 
-            {/* NEW: Help (public route) */}
-            <button className="btn btn-secondary" onClick={() => window.location.assign("/help")}>
-              Help
-            </button>
+          <nav className="shell-nav" aria-label="Primary">
+            <TabLink to="/app/today" label="Today" />
+            <TabLink to="/app/review" label="Review" />
+            <TabLink to="/app/tasks" label="Tasks" />
+            <TabLink to="/app/shared" label="Shared" />
+            <TabLink to="/app/profile" label="Profile" />
+            <TabLink to="/app/help" label="Help" />
+          </nav>
+        </header>
 
-            <button className="btn" onClick={logout}>
-              Sign out
-            </button>
-          </div>
-        </div>
-
-        <div className="row" style={{ gap: 10, marginBottom: 14 }}>
-          <TabLink to="/app/today" label="Today" />
-          <TabLink to="/app/review" label="Review" />
-          <TabLink to="/app/tasks" label="Tasks" />
-          <TabLink to="/app/shared" label="Shared" />
-          <TabLink to="/app/profile" label="Profile" />
-          {/* OPTIONAL: in-app help tab */}
-          <TabLink to="/app/help" label="Help" />
-        </div>
-
-        <Routes>
-          <Route path="today" element={<TodayPage />} />
-          <Route path="review" element={<ReviewPage />} />
-          <Route index element={<Navigate to="/app/tasks" replace />} />
-          <Route path="tasks" element={<TasksPage />} />
-          <Route path="shared" element={<SharedTasksPage />} />
-          <Route path="profile" element={<ProfilePage />} />
-          <Route path="help" element={<HelpPage />} />
-          <Route path="*" element={<Navigate to="/app/tasks" replace />} />
-        </Routes>
+        <main className="shell-main">
+          <Routes>
+            <Route path="today" element={<TodayPage />} />
+            <Route path="review" element={<ReviewPage />} />
+            <Route index element={<Navigate to="/app/today" replace />} />
+            <Route path="tasks" element={<TasksPage />} />
+            <Route path="shared" element={<SharedTasksPage />} />
+            <Route path="profile" element={<ProfilePage />} />
+            <Route path="help" element={<HelpPage />} />
+            <Route path="*" element={<Navigate to="/app/today" replace />} />
+          </Routes>
+        </main>
       </div>
     </div>
   );

@@ -297,6 +297,96 @@ export type TodayResponse = {
   projectHealth: TodayProjectHealthIssue[];
 };
 
+
+export type TodayReasonChip =
+  | "Ready to start"
+  | "Due today"
+  | "Overdue"
+  | "Due soon"
+  | "Fits 15 min block"
+  | "Fits 30 min block"
+  | "Fits 60 min block"
+  | "Small effort"
+  | "Deep work block"
+  | "Only clear next step"
+  | "Restores momentum"
+  | "Clarifies project"
+  | "Reduces deadline risk"
+  | "Well defined"
+  | "Scheduled for today";
+
+export type TodayRecommendationFilter = "all" | "quick" | "dueSoon" | "deep" | "scheduled";
+
+export type TodayTaskProjectRef = {
+  taskId: string;
+  title: string;
+};
+
+export type TodayRecommendation = {
+  task: TodayTask;
+  project?: TodayTaskProjectRef;
+  score: number;
+  reasons: TodayReasonChip[];
+};
+
+export type TodayGuidedAction = {
+  count: number;
+  sampleTitles?: string[];
+};
+
+export type TodayGuidedActions = {
+  processInbox?: TodayGuidedAction;
+  followUpWaiting?: TodayGuidedAction;
+  clarifyProjects?: TodayGuidedAction;
+  reviveProjects?: TodayGuidedAction;
+  unblockProjects?: TodayGuidedAction;
+  breakLargeTasks?: TodayGuidedAction;
+};
+
+export type ProjectMomentumTier = "strong" | "warm" | "cold" | "stalled";
+export type ProjectClarityTier =
+  | "clear"
+  | "needsNextAction"
+  | "needsClarification"
+  | "blocked"
+  | "parked";
+export type ProjectReadinessTier = "ready" | "weakReady" | "blocked" | "notReady";
+export type ProjectBlockageTier = "none" | "waiting" | "waitingRisk";
+
+export type TodayProjectHealthProject = {
+  project: TodayTask;
+  leadTask?: TodayTaskProjectRef;
+  diagnosis: string;
+  severity: number;
+  openActions: number;
+  actionableCount: number;
+  nextCount: number;
+  inboxCount: number;
+  waitingCount: number;
+  dueSoonCount: number;
+  recentCompletedCount: number;
+  momentum: ProjectMomentumTier;
+  clarity: ProjectClarityTier;
+  readiness: ProjectReadinessTier;
+  blockage: ProjectBlockageTier;
+};
+
+export type TodayProjectHealthSummary = {
+  noClearNextStep: TodayProjectHealthProject[];
+  blockedByWaiting: TodayProjectHealthProject[];
+  deadlinePressure: TodayProjectHealthProject[];
+  lowMomentum: TodayProjectHealthProject[];
+};
+
+export type TodayOverviewResponse = {
+  generatedAt: string;
+  includeShared: boolean;
+  bestNextAction: TodayRecommendation | null;
+  recommended: TodayRecommendation[];
+  guidedActions: TodayGuidedActions;
+  projectHealth: TodayProjectHealthSummary;
+};
+
 // ----------------------------------------------------------------------
 // Phase 9: Review dashboard
 

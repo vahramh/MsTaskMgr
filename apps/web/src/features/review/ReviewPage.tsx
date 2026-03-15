@@ -35,7 +35,7 @@ function toUiError(e: unknown): UiError {
 function metricLabel(metric: ReviewMetricKey): string {
   switch (metric) {
     case "inbox": return "Inbox items";
-    case "projectsWithoutNext": return "Projects without Next actions";
+    case "projectsWithoutNext": return "Projects without an actionable path";
     case "waitingFollowups": return "Waiting tasks needing follow-up";
     case "staleTasks": return "Stale tasks";
     case "oldSomeday": return "Someday items older than 60 days";
@@ -46,7 +46,7 @@ function metricLabel(metric: ReviewMetricKey): string {
 function metricHelp(metric: ReviewMetricKey): string {
   switch (metric) {
     case "inbox": return "Capture is working, but these still need clarification or organisation.";
-    case "projectsWithoutNext": return "Every active project should expose at least one executable next action.";
+    case "projectsWithoutNext": return "Healthy projects have at least one actionable path in Next, Scheduled, or Waiting — not necessarily a literal Next task.";
     case "waitingFollowups": return "These delegated or blocked items have gone quiet long enough to chase.";
     case "staleTasks": return "Open items not touched in 30+ days usually need refresh, defer, or delete.";
     case "oldSomeday": return "Someday/maybe items older than 60 days should be renewed or dropped.";
@@ -128,7 +128,7 @@ function ProjectIssueRow({ item, onOpenProject }: { item: TodayProjectHealthIssu
             {item.nextActions} next · {item.openActions} open actions · {item.stalledWaiting} stalled waiting
           </div>
           <div className="row" style={{ gap: 6, flexWrap: "wrap", marginTop: 8 }}>
-            {item.issues.map((issue) => <span key={issue} className="pill">{issue === "noNext" ? "No next action" : issue === "onlySomeday" ? "Only someday actions" : "Stalled waiting"}</span>)}
+            {item.issues.map((issue) => <span key={issue} className="pill">{issue === "noNext" ? "No actionable path" : issue === "onlySomeday" ? "Only someday actions" : "Stalled waiting"}</span>)}
           </div>
         </div>
         <button type="button" className="btn btn-secondary btn-compact" onClick={(e) => { e.stopPropagation(); onOpenProject(item.project); }}>Open project</button>
@@ -141,7 +141,7 @@ function ReviewChecklist({ active, onSelect }: { active: ReviewMetricKey; onSele
   const steps: Array<{ step: number; label: string; metric: ReviewMetricKey }> = [
     { step: 1, label: "Process Inbox", metric: "inbox" },
     { step: 2, label: "Check Waiting For", metric: "waitingFollowups" },
-    { step: 3, label: "Ensure every Project has a Next action", metric: "projectsWithoutNext" },
+    { step: 3, label: "Ensure every Project has an actionable path", metric: "projectsWithoutNext" },
     { step: 4, label: "Review Scheduled items", metric: "overdueScheduled" },
     { step: 5, label: "Reconsider Someday items", metric: "oldSomeday" },
   ];
@@ -226,7 +226,10 @@ export default function ReviewPage() {
       case "projectsWithoutNext":
         return { type: "projects" as const, items: data.projectsWithoutNextItems };
       case "inbox":
-        return { type: "tasks" as const, items: data.buckets.inbox };
+        return {
+          type: "tasks" as const,
+          items: data.buckets.inbox.filter(t => t.entityType !== "project"),
+        };
       case "waitingFollowups":
         return { type: "tasks" as const, items: data.buckets.waitingFollowups };
       case "staleTasks":

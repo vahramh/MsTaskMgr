@@ -1,0 +1,11 @@
+packages/shared/src/index.ts
+services/api/src/projects/intelligence.ts
+services/api/src/insights/project-health.ts
+services/api/src/today/best-next-action.ts
+services/api/src/today/guided-actions.ts
+apps/web/src/features/today/scoring.ts
+apps/web/src/features/today/ProjectHealthPanel.tsx
+apps/web/src/features/today/GuidedActionsPanel.tsx
+apps/web/src/features/tasks/projectDiagnostics.ts
+apps/web/src/features/tasks/components/FocusedProjectSummary.tsx
+apps/web/src/features/tasks/TasksPage.tsx

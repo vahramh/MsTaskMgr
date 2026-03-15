@@ -1,7 +1,15 @@
-import type { DurationEstimate, EffortEstimate, TodayProjectHealthIssue, TodayTask } from "@tm/shared";
+import type {
+  DurationEstimate,
+  EffortEstimate,
+  TodayGuidedActions,
+  TodayProjectHealthProject,
+  TodayProjectHealthSummary,
+  TodayRecommendation,
+  TodayTask,
+} from "@tm/shared";
 
-export type { TodayProjectHealthIssue as ProjectHealthIssue, TodayTask };
-export type TodayFilter = "all" | "quick" | "deep" | "dueSoon";
+export type { TodayGuidedActions, TodayProjectHealthProject, TodayProjectHealthSummary, TodayRecommendation, TodayTask };
+export type TodayFilter = "all" | "quick" | "deep" | "dueSoon" | "scheduled";
 
 export function effortToMinutes(effort?: EffortEstimate): number | null {
   if (!effort) return null;
@@ -57,17 +65,19 @@ export function isDeepWork(task: TodayTask): boolean {
   return minutes !== null && minutes > 60;
 }
 
-export function applyTaskFilter(tasks: TodayTask[], filter: TodayFilter, now: Date): TodayTask[] {
+export function applyRecommendationFilter(items: TodayRecommendation[], filter: TodayFilter, now: Date): TodayRecommendation[] {
   switch (filter) {
     case "quick":
-      return tasks.filter(isQuickWin);
+      return items.filter((item) => isQuickWin(item.task));
     case "deep":
-      return tasks.filter(isDeepWork);
+      return items.filter((item) => isDeepWork(item.task));
     case "dueSoon":
-      return tasks.filter((task) => isDueSoon(task, now) || isDueToday(task, now) || isOverdue(task, now));
+      return items.filter((item) => isDueSoon(item.task, now) || isDueToday(item.task, now) || isOverdue(item.task, now));
+    case "scheduled":
+      return items.filter((item) => item.task.state === "scheduled");
     case "all":
     default:
-      return tasks;
+      return items;
   }
 }
 
@@ -80,4 +90,17 @@ export function prioritySignal(task: TodayTask, now: Date): string | null {
   if (isDueSoon(task, now)) return "🟡";
   if (isQuickWin(task)) return "🟢";
   return null;
+}
+
+export function hasAnyGuidedActions(actions: TodayGuidedActions): boolean {
+  return Boolean(actions.processInbox || actions.followUpWaiting || actions.clarifyProjects || actions.reviveProjects || actions.unblockProjects || actions.breakLargeTasks);
+}
+
+export function hasAnyProjectHealthIssues(summary: TodayProjectHealthSummary): boolean {
+  return Boolean(
+    summary.noClearNextStep.length ||
+      summary.blockedByWaiting.length ||
+      summary.deadlinePressure.length ||
+      summary.lowMomentum.length
+  );
 }

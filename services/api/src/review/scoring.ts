@@ -1,4 +1,4 @@
-import type { ReviewCounts, ReviewResponse, TodayProjectHealthIssue, TodayTask } from "@tm/shared";
+import type { ReviewCounts, ReviewResponse, TodayTask } from "@tm/shared";
 import { buildProjectHealth, isOverdue, isWaitingFollowUp } from "../today/scoring";
 
 export const REVIEW_CONSTANTS = {
@@ -11,28 +11,39 @@ function ageDays(task: TodayTask, now: Date): number {
   return Math.max(0, Math.floor((now.getTime() - updated.getTime()) / 86400000));
 }
 
+function isReviewAction(task: TodayTask): boolean {
+  return task.entityType !== "project";
+}
+
 export function isStaleTask(task: TodayTask, now: Date): boolean {
   if (task.state === "completed" || task.state === "reference") return false;
+  if (!isReviewAction(task)) return false;
   return ageDays(task, now) >= REVIEW_CONSTANTS.STALE_DAYS;
 }
 
 export function isOldSomeday(task: TodayTask, now: Date): boolean {
-  return task.state === "someday" && ageDays(task, now) >= REVIEW_CONSTANTS.SOMEDAY_REVIEW_DAYS;
+  return isReviewAction(task) && task.state === "someday" && ageDays(task, now) >= REVIEW_CONSTANTS.SOMEDAY_REVIEW_DAYS;
 }
 
 export function isOverdueScheduled(task: TodayTask, now: Date): boolean {
-  return task.state === "scheduled" && isOverdue(task, now);
+  return isReviewAction(task) && task.state === "scheduled" && isOverdue(task, now);
 }
 
 export function buildReviewResponse(tasks: TodayTask[], now: Date, includeShared: boolean): ReviewResponse {
-  const actionable = tasks.filter((task) => task.state !== "completed" && task.state !== "reference");
+  const actionable = tasks.filter(
+    (task) => isReviewAction(task) && task.state !== "completed" && task.state !== "reference"
+  );
+
   const inbox = actionable.filter((task) => task.state === "inbox");
   const waitingFollowups = actionable.filter((task) => isWaitingFollowUp(task, now));
   const staleTasks = actionable.filter((task) => isStaleTask(task, now));
   const oldSomeday = actionable.filter((task) => isOldSomeday(task, now));
   const overdueScheduled = actionable.filter((task) => isOverdueScheduled(task, now));
+
   const projectHealth = buildProjectHealth(tasks, now);
-  const projectsWithoutNextItems = projectHealth.filter((item) => item.issues.includes("noNext"));
+  const projectsWithoutNextItems = projectHealth.filter(
+    (item) => item.issues.includes("noNext") && !item.issues.includes("onlySomeday")
+  );
 
   const counts: ReviewCounts = {
     inboxCount: inbox.length,

@@ -8,7 +8,7 @@ import type {
 } from "@tm/shared";
 import { isOldSomeday, isStaleTask } from "../review/scoring";
 import { buildChildrenMap, collectDescendants, taskRefKey } from "../today/hierarchy";
-import { daysFromToday, effortToMinutes, isWaitingFollowUp, minimumDurationToMinutes } from "../today/scoring";
+import { daysFromToday, effortToMinutes, hasProjectActionablePath, isWaitingFollowUp, minimumDurationToMinutes } from "../today/scoring";
 
 const MAX_SUGGESTIONS = 24;
 const DEFER_COUNT_ATTR = "_egsDeferCount";
@@ -58,6 +58,7 @@ type ProjectStats = {
   project: TodayTask;
   openActions: TodayTask[];
   nextActions: TodayTask[];
+  actionablePathActions: TodayTask[];
   waitingActionsNeedingFollowUp: TodayTask[];
 };
 
@@ -98,11 +99,13 @@ function buildProjectStats(
     const descendants = collectDescendants(project, childrenMap);
     const openActions = descendants.filter(isOpenAction);
     const nextActions = openActions.filter((task) => task.state === "next");
+    const actionablePathActions = openActions.filter(hasProjectActionablePath);
     const waitingActionsNeedingFollowUp = openActions.filter((task) => isWaitingFollowUp(task, now));
     statsByProjectId.set(project.taskId, {
       project,
       openActions,
       nextActions,
+      actionablePathActions,
       waitingActionsNeedingFollowUp,
     });
   }
@@ -411,15 +414,15 @@ export function buildInsightsResponse(tasks: TodayTask[], now: Date, includeShar
     const projectStats = statsByProjectId.get(project.taskId);
     if (!projectStats) continue;
 
-    const { openActions, nextActions, waitingActionsNeedingFollowUp } = projectStats;
+    const { openActions, nextActions, actionablePathActions, waitingActionsNeedingFollowUp } = projectStats;
 
-    if (nextActions.length === 0) {
+    if (openActions.length > 0 && actionablePathActions.length === 0) {
       suggestions.push(
         makeSuggestion({
           type: "projectMissingNextAction",
           project,
-          title: `Project “${project.title}” has no Next action`,
-          reason: `This project has ${openActions.length} open action${openActions.length === 1 ? "" : "s"} but none is marked Next.${waitingActionsNeedingFollowUp.length ? ` ${waitingActionsNeedingFollowUp.length} waiting item${waitingActionsNeedingFollowUp.length === 1 ? " is" : "s are"} stalled.` : ""}`,
+          title: `Project “${project.title}” has no actionable path`,
+          reason: `This project has ${openActions.length} open action${openActions.length === 1 ? "" : "s"} but none is in Next, Scheduled, or Waiting.${waitingActionsNeedingFollowUp.length ? ` ${waitingActionsNeedingFollowUp.length} waiting item${waitingActionsNeedingFollowUp.length === 1 ? " is" : "s are"} stalled.` : ""}`,
           reasonCode: "project_no_next",
           recommendedAction: "create_next_action",
           projectBlockage: openActions.length ? 30 : 22,

@@ -1,0 +1,12 @@
+Included files (full contents):
+- apps/web/src/pages/AppShell.tsx
+- apps/web/src/features/help/HelpPage.tsx
+- apps/web/src/App.css
+
+Summary of changes:
+- Rebuilt the signed-in shell header into a compact branded bar.
+- Removed the Home button from the signed-in shell and kept Sign out top-right.
+- Replaced fragile inline-styled nav links with explicit shell tab classes.
+- Added signed-out Help utility bar with Home and Sign in / Open Today actions.
+- Reduced Help-page redundancy and tightened content structure.
+- Restored stronger visual hierarchy and colour usage for the top shell.
