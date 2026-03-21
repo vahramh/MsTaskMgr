@@ -306,8 +306,13 @@ export type TodayReasonChip =
   | "Fits 15 min block"
   | "Fits 30 min block"
   | "Fits 60 min block"
+  | "Fits medium block"
   | "Small effort"
+  | "Low activation friction"
   | "Deep work block"
+  | "High leverage"
+  | "Substantial progress"
+  | "Time-sensitive"
   | "Only clear next step"
   | "Restores momentum"
   | "Clarifies project"
@@ -315,7 +320,10 @@ export type TodayReasonChip =
   | "Well defined"
   | "Scheduled for today";
 
-export type TodayRecommendationFilter = "all" | "quick" | "dueSoon" | "deep" | "scheduled";
+export type TodayExecutionMode = "all" | "quickWins" | "mediumBlock" | "deepWork" | "dueSoon";
+
+export type TodayRecommendationFit = "quick" | "medium" | "deep" | "unknown";
+export type TodayRecommendationReadiness = "ready" | "weakReady" | "notReady" | "blocked";
 
 export type TodayTaskProjectRef = {
   taskId: string;
@@ -327,6 +335,17 @@ export type TodayRecommendation = {
   project?: TodayTaskProjectRef;
   score: number;
   reasons: TodayReasonChip[];
+  explanation?: string;
+  executionFit?: TodayRecommendationFit;
+  readiness?: TodayRecommendationReadiness;
+};
+
+export type TodayModeRecommendations = {
+  mode: TodayExecutionMode;
+  label: string;
+  description: string;
+  bestNextAction: TodayRecommendation | null;
+  recommended: TodayRecommendation[];
 };
 
 export type TodayGuidedAction = {
@@ -341,6 +360,7 @@ export type TodayGuidedActions = {
   reviveProjects?: TodayGuidedAction;
   unblockProjects?: TodayGuidedAction;
   breakLargeTasks?: TodayGuidedAction;
+  prepareNextActions?: TodayGuidedAction;
 };
 
 export type ProjectMomentumTier = "strong" | "warm" | "cold" | "stalled";
@@ -381,8 +401,10 @@ export type TodayProjectHealthSummary = {
 export type TodayOverviewResponse = {
   generatedAt: string;
   includeShared: boolean;
+  defaultMode: TodayExecutionMode;
   bestNextAction: TodayRecommendation | null;
   recommended: TodayRecommendation[];
+  recommendationModes: Record<TodayExecutionMode, TodayModeRecommendations>;
   guidedActions: TodayGuidedActions;
   projectHealth: TodayProjectHealthSummary;
 };

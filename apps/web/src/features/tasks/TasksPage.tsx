@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import type { WorkflowState } from "@tm/shared";
+import type { Task, WorkflowState } from "@tm/shared";
 import { useSpeechToText } from "../../hooks/useSpeechToText";
 import { useAuth } from "../../auth/AuthContext";
 import { getHygieneSignals } from "./hygiene";
@@ -12,6 +12,7 @@ import { FocusedProjectSummary } from "./components/FocusedProjectSummary";
 import { RootExecutionList } from "./components/RootExecutionList";
 import { TaskTree } from "./components/TaskTree";
 import { TaskSharePanel } from "./components/TaskSharePanel";
+import { InboxProjectAttachPanel } from "./components/InboxProjectAttachPanel";
 import type { TaskPresentationHelpers, TaskSurfaceActions } from "./components/taskRenderModels";
 import { useTasks } from "./useTasks";
 import { useBucketTasks } from "./useBucketTasks";
@@ -23,6 +24,7 @@ import { useTaskShareController } from "./hooks/useTaskShareController";
 import { deriveEntityType, deriveState, dueTone, fmtDue, formatTime, renderTaskStateBadge, stateLabel, TaskListSkeleton } from "./taskPresentation";
 import { parseVoiceTaskCapture, promptDueDate, promptWaitingFor, speechErrorLabel } from "./voiceTaskCapture";
 import { computeFocusedProjectDiagnostics } from "./projectDiagnostics";
+import { createSubtask } from "./api";
 
 async function tryCopy(text: string): Promise<void> {
   try {
@@ -64,6 +66,11 @@ export default function TasksPage() {
     setFocusView,
     clearDeepLinkEdit,
   } = useTaskPageNavigation(searchParams, setSearchParams);
+
+  const [attachTaskId, setAttachTaskId] = useState<string | null>(null);
+  const [attachProjectId, setAttachProjectId] = useState("");
+  const [attachTargetState, setAttachTargetState] = useState<WorkflowState>("next");
+  const [attaching, setAttaching] = useState(false);
 
   const bucketView: WorkflowState | null = view === "projects" ? null : view;
   const {
@@ -184,6 +191,76 @@ export default function TasksPage() {
     deleteSubtreeNode,
     pendingForSubtask,
   });
+
+  const availableProjects = useMemo(
+    () =>
+      items
+        .filter((task) => deriveEntityType(task) === "project" && !task.parentTaskId)
+        .sort((a, b) => a.title.localeCompare(b.title)),
+    [items]
+  );
+
+  const openAttachPanel = useCallback((task: Task) => {
+    setAttachTaskId(task.taskId);
+    setAttachProjectId("");
+    setAttachTargetState("next");
+  }, []);
+
+  const closeAttachPanel = useCallback(() => {
+    setAttachTaskId(null);
+    setAttachProjectId("");
+    setAttachTargetState("next");
+  }, []);
+
+  const attachInboxTaskToProject = useCallback(async (task: Task) => {
+    if (!tokens) return;
+    if (!attachProjectId) {
+      alert("Select a project first.");
+      return;
+    }
+
+    const targetProject = availableProjects.find((project) => project.taskId === attachProjectId);
+    if (!targetProject) {
+      alert("Selected project was not found.");
+      return;
+    }
+
+    try {
+      setAttaching(true);
+
+      await createSubtask(tokens, targetProject.taskId, {
+        title: task.title,
+        description: task.description,
+        dueDate: task.dueDate,
+        priority: task.priority,
+        effort: task.effort,
+        minimumDuration: task.minimumDuration,
+        attrs: task.attrs,
+        entityType: "action",
+        state: attachTargetState,
+        context: task.context,
+        waitingFor: attachTargetState === "waiting" ? task.waitingFor : undefined,
+      });
+
+      await removeTask(task);
+      await loadChildren(targetProject.taskId, true);
+      await refreshExecutionModel();
+      closeAttachPanel();
+    } catch (error: any) {
+      alert(error?.message ?? "Failed to file task under project.");
+    } finally {
+      setAttaching(false);
+    }
+  }, [
+    tokens,
+    attachProjectId,
+    attachTargetState,
+    availableProjects,
+    removeTask,
+    loadChildren,
+    refreshExecutionModel,
+    closeAttachPanel,
+  ]);
 
   const focusedProject = useMemo(() => {
     if (!focusId) return null;
@@ -521,21 +598,40 @@ export default function TasksPage() {
             clearFocus={clearFocus}
             setFocus={setFocus}
             renderChildren={(taskId) => renderChildren(taskId, 1)}
-            renderExtraPanel={(task) => shareController.shareFor === task.taskId ? (
-              <TaskSharePanel
-                shares={shareController.shares}
-                sharesLoading={shareController.sharesLoading}
-                sharesError={shareController.sharesError}
-                shareGranteeSub={shareController.shareGranteeSub}
-                shareMode={shareController.shareMode}
-                onClose={shareController.closeShares}
-                onDismissError={() => shareController.setSharesError(null)}
-                onShareGranteeSubChange={shareController.setShareGranteeSub}
-                onShareModeChange={shareController.setShareMode}
-                onSubmitShare={() => void shareController.submitShare(task.taskId)}
-                onRemoveShare={(granteeSub) => void shareController.removeShare(task.taskId, granteeSub)}
-              />
-            ) : null}
+            onOpenAttachPanel={openAttachPanel}
+            renderExtraPanel={(task) => (
+              <>
+                {attachTaskId === task.taskId ? (
+                  <InboxProjectAttachPanel
+                    task={task}
+                    projects={availableProjects}
+                    selectedProjectId={attachProjectId}
+                    targetState={attachTargetState}
+                    pending={attaching}
+                    onClose={closeAttachPanel}
+                    onProjectChange={setAttachProjectId}
+                    onTargetStateChange={setAttachTargetState}
+                    onSubmit={() => void attachInboxTaskToProject(task)}
+                  />
+                ) : null}
+
+                {shareController.shareFor === task.taskId ? (
+                  <TaskSharePanel
+                    shares={shareController.shares}
+                    sharesLoading={shareController.sharesLoading}
+                    sharesError={shareController.sharesError}
+                    shareGranteeSub={shareController.shareGranteeSub}
+                    shareMode={shareController.shareMode}
+                    onClose={shareController.closeShares}
+                    onDismissError={() => shareController.setSharesError(null)}
+                    onShareGranteeSubChange={shareController.setShareGranteeSub}
+                    onShareModeChange={shareController.setShareMode}
+                    onSubmitShare={() => void shareController.submitShare(task.taskId)}
+                    onRemoveShare={(granteeSub) => void shareController.removeShare(task.taskId, granteeSub)}
+                  />
+                ) : null}
+              </>
+            )}
             taskSurface={taskSurface}
             presentation={{
               deriveState,

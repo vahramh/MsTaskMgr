@@ -1,12 +1,11 @@
-import type { TodayRecommendation, TodayTask } from "@tm/shared";
+import type { TodayExecutionMode, TodayModeRecommendations, TodayTask } from "@tm/shared";
 import { getHygieneSignals } from "../tasks/hygiene";
 import {
-  applyRecommendationFilter,
   effortToMinutes,
+  executionModeLabel,
   minimumDurationToMinutes,
   prioritySignal,
   TODAY_CONSTANTS,
-  type TodayFilter,
 } from "./scoring";
 
 function formatDueDate(dueDate?: string): string | null {
@@ -37,6 +36,34 @@ function canEditTask(task: TodayTask): boolean {
   return task.sharedMeta?.mode === "EDIT";
 }
 
+function readinessText(readiness?: string): string | null {
+  switch (readiness) {
+    case "ready":
+      return "ready now";
+    case "weakReady":
+      return "mostly ready";
+    case "notReady":
+      return "needs setup";
+    case "blocked":
+      return "blocked";
+    default:
+      return null;
+  }
+}
+
+function fitText(fit?: string): string | null {
+  switch (fit) {
+    case "quick":
+      return "quick fit";
+    case "medium":
+      return "medium fit";
+    case "deep":
+      return "deep fit";
+    default:
+      return null;
+  }
+}
+
 function TaskCard({
   item,
   now,
@@ -45,7 +72,7 @@ function TaskCard({
   onQuickAction,
   pending,
 }: {
-  item: TodayRecommendation;
+  item: TodayModeRecommendations["recommended"][number];
   now: Date;
   onOpenTask: (task: TodayTask) => void;
   onOpenProject: (task: TodayTask) => void;
@@ -59,6 +86,8 @@ function TaskCard({
   const signal = prioritySignal(task, now);
   const hygiene = getHygieneSignals(task, now);
   const editable = canEditTask(task);
+  const readiness = readinessText(item.readiness);
+  const fit = fitText(item.executionFit);
 
   return (
     <div className="card today-task-card" style={{ padding: 14, cursor: "pointer" }} {...cardClickProps(() => onOpenTask(task))}>
@@ -75,12 +104,15 @@ function TaskCard({
             {task.context ? ` · ${task.context}` : ""}
             {effortMinutes !== null ? ` · effort ${effortMinutes}m` : ""}
             {minimumBlockMinutes !== null ? ` · block ${minimumBlockMinutes}m` : ""}
+            {readiness ? ` · ${readiness}` : ""}
+            {fit ? ` · ${fit}` : ""}
             {task.source === "shared" && task.sharedMeta ? ` · ${task.sharedMeta.mode}` : ""}
           </div>
           <div className="row" style={{ gap: 6, flexWrap: "wrap", marginTop: 8 }}>
             {item.reasons.map((reason) => <span key={reason} className="pill">{reason}</span>)}
             {hygiene.map((tag) => <span key={tag.key} className="pill" title={tag.label}>{tag.icon} {tag.label}</span>)}
           </div>
+          {item.explanation ? <div className="help" style={{ marginTop: 8 }}>{item.explanation}</div> : null}
           {due ? <div className="help" style={{ marginTop: 6 }}>Due {due}</div> : null}
           <div className="row" style={{ gap: 8, flexWrap: "wrap", marginTop: 10 }}>
             <button type="button" className="btn btn-compact" disabled={!editable || pending} onClick={(e) => { e.stopPropagation(); onQuickAction(task, "complete"); }}>
@@ -108,29 +140,13 @@ function TaskCard({
   );
 }
 
-function filterLabel(filter: TodayFilter): string {
-  switch (filter) {
-    case "quick":
-      return "Quick wins";
-    case "deep":
-      return "Deep work";
-    case "dueSoon":
-      return "Due soon";
-    case "scheduled":
-      return "Scheduled";
-    case "all":
-    default:
-      return "All";
-  }
-}
-
-function FilterButtons({ value, onChange }: { value: TodayFilter; onChange: (value: TodayFilter) => void }) {
-  const filters: Array<{ key: TodayFilter; label: string }> = [
+function FilterButtons({ value, onChange }: { value: TodayExecutionMode; onChange: (value: TodayExecutionMode) => void }) {
+  const filters: Array<{ key: TodayExecutionMode; label: string }> = [
     { key: "all", label: "All" },
-    { key: "quick", label: "Quick wins" },
-    { key: "dueSoon", label: "Due soon" },
-    { key: "deep", label: "Deep work" },
-    { key: "scheduled", label: "Scheduled" },
+    { key: "quickWins", label: "Quick Wins" },
+    { key: "mediumBlock", label: "Medium Block" },
+    { key: "deepWork", label: "Deep Work" },
+    { key: "dueSoon", label: "Due Soon" },
   ];
   return (
     <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
@@ -152,25 +168,25 @@ function FilterButtons({ value, onChange }: { value: TodayFilter; onChange: (val
 }
 
 export default function RecommendedTasksSection({
-  items,
-  filter,
-  onFilterChange,
+  mode,
+  modeData,
+  onModeChange,
   now,
   onOpenTask,
   onOpenProject,
   onQuickAction,
   pendingTaskId,
 }: {
-  items: TodayRecommendation[];
-  filter: TodayFilter;
-  onFilterChange: (value: TodayFilter) => void;
+  mode: TodayExecutionMode;
+  modeData: TodayModeRecommendations;
+  onModeChange: (value: TodayExecutionMode) => void;
   now: Date;
   onOpenTask: (task: TodayTask) => void;
   onOpenProject: (task: TodayTask) => void;
   onQuickAction: (task: TodayTask, action: "complete" | "tomorrow" | "plus3" | "waiting" | "reschedule") => void;
   pendingTaskId: string | null;
 }) {
-  const filtered = applyRecommendationFilter(items, filter, now).slice(0, TODAY_CONSTANTS.MAX_RECOMMENDED);
+  const filtered = modeData.recommended.slice(0, TODAY_CONSTANTS.MAX_RECOMMENDED);
 
   return (
     <div className="card" style={{ padding: 14 }}>
@@ -178,10 +194,10 @@ export default function RecommendedTasksSection({
         <div>
           <div style={{ fontSize: 18, fontWeight: 800 }}>Recommended Tasks</div>
           <div className="help" style={{ marginTop: 4 }}>
-            Good execution alternatives after the top recommendation.
+            {executionModeLabel(mode)} · {modeData.description}
           </div>
         </div>
-        <FilterButtons value={filter} onChange={onFilterChange} />
+        <FilterButtons value={mode} onChange={onModeChange} />
       </div>
 
       {filtered.length ? (
@@ -200,9 +216,9 @@ export default function RecommendedTasksSection({
         </div>
       ) : (
         <div style={{ marginTop: 12 }}>
-          <div style={{ fontWeight: 700 }}>No recommended tasks for {filterLabel(filter).toLowerCase()}</div>
+          <div style={{ fontWeight: 700 }}>No recommended tasks for {executionModeLabel(mode).toLowerCase()}</div>
           <div className="help" style={{ marginTop: 4 }}>
-            Try another filter or create more executable Next or Scheduled actions.
+            That usually means there is no task that both fits this window and passes readiness trust checks right now.
           </div>
         </div>
       )}

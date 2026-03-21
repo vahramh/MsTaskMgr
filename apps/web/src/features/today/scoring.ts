@@ -1,15 +1,20 @@
 import type {
   DurationEstimate,
   EffortEstimate,
+  TodayExecutionMode,
   TodayGuidedActions,
-  TodayProjectHealthProject,
+  TodayModeRecommendations,
   TodayProjectHealthSummary,
-  TodayRecommendation,
   TodayTask,
 } from "@tm/shared";
 
-export type { TodayGuidedActions, TodayProjectHealthProject, TodayProjectHealthSummary, TodayRecommendation, TodayTask };
-export type TodayFilter = "all" | "quick" | "deep" | "dueSoon" | "scheduled";
+export type {
+  TodayExecutionMode,
+  TodayGuidedActions,
+  TodayModeRecommendations,
+  TodayProjectHealthSummary,
+  TodayTask,
+};
 
 export function effortToMinutes(effort?: EffortEstimate): number | null {
   if (!effort) return null;
@@ -55,45 +60,44 @@ export function isDueSoon(task: TodayTask, now: Date): boolean {
   return diff >= 0 && diff <= 3;
 }
 
-export function isQuickWin(task: TodayTask): boolean {
-  const minutes = minimumDurationToMinutes(task.minimumDuration) ?? effortToMinutes(task.effort);
-  return minutes !== null && minutes <= 30;
-}
-
-export function isDeepWork(task: TodayTask): boolean {
-  const minutes = minimumDurationToMinutes(task.minimumDuration) ?? effortToMinutes(task.effort);
-  return minutes !== null && minutes > 60;
-}
-
-export function applyRecommendationFilter(items: TodayRecommendation[], filter: TodayFilter, now: Date): TodayRecommendation[] {
-  switch (filter) {
-    case "quick":
-      return items.filter((item) => isQuickWin(item.task));
-    case "deep":
-      return items.filter((item) => isDeepWork(item.task));
+export function executionModeLabel(mode: TodayExecutionMode): string {
+  switch (mode) {
+    case "quickWins":
+      return "Quick Wins";
+    case "mediumBlock":
+      return "Medium Block";
+    case "deepWork":
+      return "Deep Work";
     case "dueSoon":
-      return items.filter((item) => isDueSoon(item.task, now) || isDueToday(item.task, now) || isOverdue(item.task, now));
-    case "scheduled":
-      return items.filter((item) => item.task.state === "scheduled");
+      return "Due Soon";
     case "all":
     default:
-      return items;
+      return "All / Default";
   }
+}
+
+export function prioritySignal(task: TodayTask, now: Date): string | null {
+  if (isOverdue(task, now)) return "🔴";
+  if (isDueSoon(task, now)) return "🟡";
+  const minutes = minimumDurationToMinutes(task.minimumDuration) ?? effortToMinutes(task.effort);
+  if (minutes !== null && minutes <= 20) return "🟢";
+  return null;
 }
 
 export const TODAY_CONSTANTS = {
   MAX_RECOMMENDED: 7,
 };
 
-export function prioritySignal(task: TodayTask, now: Date): string | null {
-  if (isOverdue(task, now)) return "🔴";
-  if (isDueSoon(task, now)) return "🟡";
-  if (isQuickWin(task)) return "🟢";
-  return null;
-}
-
 export function hasAnyGuidedActions(actions: TodayGuidedActions): boolean {
-  return Boolean(actions.processInbox || actions.followUpWaiting || actions.clarifyProjects || actions.reviveProjects || actions.unblockProjects || actions.breakLargeTasks);
+  return Boolean(
+    actions.processInbox ||
+      actions.followUpWaiting ||
+      actions.clarifyProjects ||
+      actions.reviveProjects ||
+      actions.unblockProjects ||
+      actions.breakLargeTasks ||
+      actions.prepareNextActions
+  );
 }
 
 export function hasAnyProjectHealthIssues(summary: TodayProjectHealthSummary): boolean {

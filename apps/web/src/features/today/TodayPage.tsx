@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import type { TodayOverviewResponse, TodayTask, UpdateTaskRequest } from "@tm/shared";
+import type { TodayExecutionMode, TodayOverviewResponse, TodayTask, UpdateTaskRequest } from "@tm/shared";
 import { useAuth } from "../../auth/AuthContext";
 import { ApiError } from "../../api/http";
 import InlineAlert from "../../components/InlineAlert";
 import { getToday } from "./api";
 import { completeTask, updateSharedRoot, updateSharedSubtask, updateSubtask, updateTask } from "../tasks/api";
-import { hasAnyGuidedActions, hasAnyProjectHealthIssues, type TodayFilter } from "./scoring";
+import { executionModeLabel, hasAnyGuidedActions, hasAnyProjectHealthIssues } from "./scoring";
 import BestNextActionCard from "./BestNextActionCard";
 import RecommendedTasksSection from "./RecommendedTasksSection";
 import GuidedActionsPanel from "./GuidedActionsPanel";
@@ -83,7 +83,7 @@ function withDeferredAttrs(task: TodayTask) {
 export default function TodayPage() {
   const { tokens } = useAuth();
   const navigate = useNavigate();
-  const [filter, setFilter] = useState<TodayFilter>("all");
+  const [mode, setMode] = useState<TodayExecutionMode>("all");
   const [includeShared, setIncludeShared] = useState(false);
   const [data, setData] = useState<TodayOverviewResponse | null>(null);
   const [loading, setLoading] = useState(false);
@@ -103,7 +103,10 @@ export default function TodayPage() {
     setLoading(true);
     setError(null);
     getToday(tokens, includeShared, ac.signal)
-      .then((resp) => setData(resp))
+      .then((resp) => {
+        setData(resp);
+        setMode(resp.defaultMode ?? "all");
+      })
       .catch((e) => {
         if (e instanceof DOMException && e.name === "AbortError") return;
         setError(toUiError(e));
@@ -176,11 +179,14 @@ export default function TodayPage() {
   const goToProjects = () => navigate("/app/tasks?view=projects");
   const goToTasks = () => navigate("/app/tasks");
 
+  const modeData = data?.recommendationModes?.[mode] ?? null;
+
   const showEmpty =
     !loading &&
     data &&
-    !data.bestNextAction &&
-    data.recommended.length === 0 &&
+    modeData &&
+    !modeData.bestNextAction &&
+    modeData.recommended.length === 0 &&
     !hasAnyGuidedActions(data.guidedActions) &&
     !hasAnyProjectHealthIssues(data.projectHealth);
 
@@ -190,6 +196,11 @@ export default function TodayPage() {
         <div>
           <div style={{ fontSize: 22, fontWeight: 900 }}>Today</div>
           <div className="help">Primary execution surface: what to do now, what else is reasonable, and what needs attention.</div>
+          {modeData ? (
+            <div className="help" style={{ marginTop: 6 }}>
+              Current execution lens: {executionModeLabel(mode)}. Tasks outside this lens are not removed from the system; they are simply deprioritised for this working window.
+            </div>
+          ) : null}
         </div>
         <label className="row" style={{ gap: 8, fontWeight: 600 }}>
           <input type="checkbox" checked={includeShared} onChange={(e) => setIncludeShared(e.target.checked)} />
@@ -219,19 +230,21 @@ export default function TodayPage() {
 
       {loading ? <div className="card">Loading…</div> : null}
 
-      {!loading && data ? (
+      {!loading && data && modeData ? (
         <>
           <BestNextActionCard
-            item={data.bestNextAction}
+            item={modeData.bestNextAction}
+            mode={mode}
+            modeDescription={modeData.description}
             now={now}
             onOpenTask={openTask}
-            onSeeAlternatives={() => setFilter("all")}
+            onSeeAlternatives={() => window.scrollTo({ top: 320, behavior: "smooth" })}
           />
 
           <RecommendedTasksSection
-            items={data.recommended}
-            filter={filter}
-            onFilterChange={setFilter}
+            mode={mode}
+            modeData={modeData}
+            onModeChange={setMode}
             now={now}
             onOpenTask={openTask}
             onOpenProject={openProject}

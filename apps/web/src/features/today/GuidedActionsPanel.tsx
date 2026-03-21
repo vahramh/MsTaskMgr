@@ -68,6 +68,15 @@ export default function GuidedActionsPanel({
           onOpen: onOpenTasks,
         }
       : null,
+    actions.prepareNextActions
+      ? {
+          key: "prepareNextActions",
+          title: "Prepare Next Actions",
+          description: `${actions.prepareNextActions.count} Next or Scheduled item${actions.prepareNextActions.count === 1 ? " is" : "s are"} not fully execution-ready yet.`,
+          samples: actions.prepareNextActions.sampleTitles,
+          onOpen: onOpenTasks,
+        }
+      : null,
   ].filter(Boolean) as Array<{ key: string; title: string; description: string; samples?: string[]; onOpen: () => void }>;
 
   return (

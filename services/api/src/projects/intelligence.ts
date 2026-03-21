@@ -9,6 +9,8 @@ import type {
 import { buildChildrenMap, collectDescendants, taskRefKey } from "../today/hierarchy";
 import { daysFromToday, isWaitingFollowUp } from "../today/scoring";
 
+export type TaskExecutionReadinessTier = "ready" | "weakReady" | "notReady" | "blocked";
+
 export type TaskProjectContext = {
   project?: TodayTask;
   leadTaskId?: string;
@@ -17,6 +19,12 @@ export type TaskProjectContext = {
   projectLowMomentum: boolean;
   projectNeedsClarification: boolean;
   projectHasDeadlinePressure: boolean;
+  taskExecutionReadiness: TaskExecutionReadinessTier;
+  blockedByAncestorState: boolean;
+  blockedByDescendantState: boolean;
+  hasOpenChildren: boolean;
+  hasActionableChildren: boolean;
+  missingReadinessMetadata: number;
 };
 
 export type ProjectIntelligenceResult = {
@@ -187,8 +195,162 @@ function buildDiagnosis(args: {
   return args.leadTask ? `${args.leadTask.title} is the clearest next move.` : "Project looks healthy.";
 }
 
+function buildTaskMap(tasks: TodayTask[]): Map<string, TodayTask> {
+  return new Map(tasks.map((task) => [taskRefKey(task), task]));
+}
+
+function collectAncestors(task: TodayTask, taskMap: Map<string, TodayTask>): TodayTask[] {
+  const out: TodayTask[] = [];
+  let current = task;
+  const seen = new Set<string>();
+
+  while (current.parentTaskId) {
+    const key = `${current.source}:${current.parentTaskId}`;
+    if (seen.has(key)) break;
+    seen.add(key);
+    const parent = taskMap.get(key);
+    if (!parent) break;
+    out.push(parent);
+    current = parent;
+  }
+
+  return out;
+}
+
+function isBlockingState(task: TodayTask): boolean {
+  return task.state === "waiting" || task.state === "someday" || task.state === "reference" || task.state === "completed";
+}
+
+function metadataCompleteness(task: TodayTask): number {
+  let count = 0;
+  if (task.context?.trim()) count += 1;
+  if (task.effort) count += 1;
+  if (task.minimumDuration) count += 1;
+  return count;
+}
+
+function assessTaskExecutionReadiness(
+  task: TodayTask,
+  childrenMap: Map<string, TodayTask[]>,
+  taskMap: Map<string, TodayTask>,
+  now: Date
+): {
+  tier: TaskExecutionReadinessTier;
+  blockedByAncestorState: boolean;
+  blockedByDescendantState: boolean;
+  hasOpenChildren: boolean;
+  hasActionableChildren: boolean;
+  missingReadinessMetadata: number;
+} {
+  const directOpenChildren = (childrenMap.get(taskRefKey(task)) ?? []).filter(isOpenAction);
+  const directActionableChildren = directOpenChildren.filter(isActionable);
+  const directBlockingChildren = directOpenChildren.filter((child) => child.state === "waiting" || child.state === "inbox");
+  const ancestors = collectAncestors(task, taskMap);
+  const blockedByAncestorState = ancestors.some((ancestor) => isBlockingState(ancestor) || ancestor.state === "inbox");
+  const metadataCount = metadataCompleteness(task);
+  const missingReadinessMetadata = 3 - metadataCount;
+
+  if (blockedByAncestorState) {
+    return {
+      tier: "blocked",
+      blockedByAncestorState,
+      blockedByDescendantState: false,
+      hasOpenChildren: directOpenChildren.length > 0,
+      hasActionableChildren: directActionableChildren.length > 0,
+      missingReadinessMetadata,
+    };
+  }
+
+  if (task.state === "waiting" || task.state === "someday" || task.state === "inbox") {
+    return {
+      tier: task.state === "waiting" ? "blocked" : "notReady",
+      blockedByAncestorState: false,
+      blockedByDescendantState: false,
+      hasOpenChildren: directOpenChildren.length > 0,
+      hasActionableChildren: directActionableChildren.length > 0,
+      missingReadinessMetadata,
+    };
+  }
+
+  if (directActionableChildren.length > 0) {
+    return {
+      tier: "notReady",
+      blockedByAncestorState: false,
+      blockedByDescendantState: false,
+      hasOpenChildren: true,
+      hasActionableChildren: true,
+      missingReadinessMetadata,
+    };
+  }
+
+  if (directBlockingChildren.length > 0) {
+    return {
+      tier: "blocked",
+      blockedByAncestorState: false,
+      blockedByDescendantState: true,
+      hasOpenChildren: directOpenChildren.length > 0,
+      hasActionableChildren: directActionableChildren.length > 0,
+      missingReadinessMetadata,
+    };
+  }
+
+  if (directOpenChildren.length > 0) {
+    return {
+      tier: "notReady",
+      blockedByAncestorState: false,
+      blockedByDescendantState: false,
+      hasOpenChildren: true,
+      hasActionableChildren: false,
+      missingReadinessMetadata,
+    };
+  }
+
+  if (metadataCount == 3) {
+    return {
+      tier: "ready",
+      blockedByAncestorState: false,
+      blockedByDescendantState: false,
+      hasOpenChildren: false,
+      hasActionableChildren: false,
+      missingReadinessMetadata,
+    };
+  }
+
+  if (metadataCount >= 2) {
+    return {
+      tier: "weakReady",
+      blockedByAncestorState: false,
+      blockedByDescendantState: false,
+      hasOpenChildren: false,
+      hasActionableChildren: false,
+      missingReadinessMetadata,
+    };
+  }
+
+  if (task.dueDate && daysFromToday(task.dueDate, now) <= 0) {
+    return {
+      tier: "weakReady",
+      blockedByAncestorState: false,
+      blockedByDescendantState: false,
+      hasOpenChildren: false,
+      hasActionableChildren: false,
+      missingReadinessMetadata,
+    };
+  }
+
+  return {
+    tier: "notReady",
+    blockedByAncestorState: false,
+    blockedByDescendantState: false,
+    hasOpenChildren: false,
+    hasActionableChildren: false,
+    missingReadinessMetadata,
+  };
+}
+
 export function buildProjectIntelligence(tasks: TodayTask[], now: Date): ProjectIntelligenceResult {
   const childrenMap = buildChildrenMap(tasks);
+  const taskMap = buildTaskMap(tasks);
   const projects = tasks.filter((task) => task.entityType === "project" && !task.parentTaskId && task.state !== "completed");
   const taskContextByKey = new Map<string, TaskProjectContext>();
   const out: TodayProjectHealthProject[] = [];
@@ -251,6 +413,7 @@ export function buildProjectIntelligence(tasks: TodayTask[], now: Date): Project
     out.push(item);
 
     for (const task of openActions) {
+      const readinessSignals = assessTaskExecutionReadiness(task, childrenMap, taskMap, now);
       taskContextByKey.set(taskRefKey(task), {
         project,
         leadTaskId: leadTask?.taskId,
@@ -259,6 +422,12 @@ export function buildProjectIntelligence(tasks: TodayTask[], now: Date): Project
         projectLowMomentum: momentum === "cold" || momentum === "stalled",
         projectNeedsClarification: clarity === "needsClarification" || clarity === "needsNextAction",
         projectHasDeadlinePressure: deadlineActions.length > 0,
+        taskExecutionReadiness: readinessSignals.tier,
+        blockedByAncestorState: readinessSignals.blockedByAncestorState,
+        blockedByDescendantState: readinessSignals.blockedByDescendantState,
+        hasOpenChildren: readinessSignals.hasOpenChildren,
+        hasActionableChildren: readinessSignals.hasActionableChildren,
+        missingReadinessMetadata: readinessSignals.missingReadinessMetadata,
       });
     }
   }

@@ -20,6 +20,7 @@ export function RootExecutionList({
   renderExtraPanel,
   taskSurface,
   presentation,
+  onOpenAttachPanel
 }: {
   items: Task[];
   isExpanded: (taskId: string) => boolean;
@@ -34,6 +35,7 @@ export function RootExecutionList({
   renderExtraPanel?: (task: Task) => React.ReactNode;
   taskSurface: TaskSurfaceActions;
   presentation: Required<Pick<TaskPresentationHelpers, "deriveState" | "deriveEntityType" | "dueTone" | "fmtDue" | "renderTaskStateBadge" | "formatTime" | "getHygieneSignals">>;
+  onOpenAttachPanel?: (task: Task) => void;
 }) {
   return (
     <div style={{ display: "grid", gap: 10 }}>
@@ -56,6 +58,7 @@ export function RootExecutionList({
           extraPanel={renderExtraPanel?.(task)}
           taskSurface={taskSurface}
           presentation={presentation}
+          onOpenAttachPanel={onOpenAttachPanel}
         />
       ))}
     </div>
@@ -79,6 +82,7 @@ function RootExecutionItem({
   extraPanel,
   taskSurface,
   presentation,
+  onOpenAttachPanel,
 }: {
   task: Task;
   pending: boolean;
@@ -96,8 +100,10 @@ function RootExecutionItem({
   extraPanel?: React.ReactNode;
   taskSurface: TaskSurfaceActions;
   presentation: Required<Pick<TaskPresentationHelpers, "deriveState" | "deriveEntityType" | "dueTone" | "fmtDue" | "renderTaskStateBadge" | "formatTime">>;
+  onOpenAttachPanel?: (task: Task) => void;
 }) {
   const isProject = presentation.deriveEntityType(task) === "project";
+  const canAttachToProject = !task.parentTaskId && presentation.deriveEntityType(task) === "action" && presentation.deriveState(task) === "inbox";
 
   return (
     <div
@@ -152,17 +158,31 @@ function RootExecutionItem({
           deleteDisabled={pending || (subtrees[task.taskId]?.loaded && (subtrees[task.taskId]?.items?.length ?? 0) > 0)}
           completePrimary={presentation.deriveState(task) === "next" && task.status !== "COMPLETED"}
           focusAction={
-            view === "projects" && isProject ? (
-              focusId === task.taskId ? (
-                <button type="button" className="btn btn-secondary btn-compact" onClick={clearFocus} disabled={pending} title="Back to all projects">
-                  Unfocus
+            <>
+              {canAttachToProject && onOpenAttachPanel ? (
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-compact"
+                  onClick={() => onOpenAttachPanel(task)}
+                  disabled={pending}
+                  title="File this inbox item under an existing project"
+                >
+                  File under project
                 </button>
-              ) : (
-                <button type="button" className="btn btn-secondary btn-compact" onClick={() => setFocus(task.taskId)} disabled={pending} title="Focus this project">
-                  Focus
-                </button>
-              )
-            ) : null
+              ) : null}
+
+              {view === "projects" && isProject ? (
+                focusId === task.taskId ? (
+                  <button type="button" className="btn btn-secondary btn-compact" onClick={clearFocus} disabled={pending} title="Back to all projects">
+                    Unfocus
+                  </button>
+                ) : (
+                  <button type="button" className="btn btn-secondary btn-compact" onClick={() => setFocus(task.taskId)} disabled={pending} title="Focus this project">
+                    Focus
+                  </button>
+                )
+              ) : null}
+            </>
           }
         />
 

@@ -153,28 +153,28 @@ function SystemFlow() {
 function ScoringModel() {
   const rows = [
     {
-      title: "Readiness",
-      body: "Can the task genuinely begin now, or is it waiting, blocked, or tied to a future date?",
+      title: "Readiness and eligibility",
+      body: "Only plausible candidates should be ranked. A task must first survive readiness checks before it can credibly compete for Today attention.",
     },
     {
       title: "Due pressure",
-      body: "Does the task carry real time sensitivity such as overdue status, a near deadline, or a genuine commitment date?",
+      body: "Overdue and due-today items receive substantial score lifts, but lateness alone does not always override poor readiness.",
     },
     {
-      title: "Project leverage",
-      body: "How strongly does the task advance an active outcome, unblock other work, or restore movement in an important project?",
-    },
-    {
-      title: "Staleness and drift",
-      body: "Has the surrounding project gone quiet, lost a next action, or remained in waiting too long without intervention?",
-    },
-    {
-      title: "Effort and duration fit",
-      body: "Does the task suit the likely working window? Short gaps favour quick wins; deeper blocks favour larger or more cognitive work.",
+      title: "Focus-window fit",
+      body: "Minimum duration and effort influence whether the task suits a short gap or a deeper work block.",
     },
     {
       title: "Definition quality",
-      body: "Clear, specific, executable tasks are more credible than vague placeholders that still require interpretation.",
+      body: "Context, effort, and minimum duration all increase confidence that the task can begin without rethinking.",
+    },
+    {
+      title: "Project leverage",
+      body: "Tasks that restore momentum, clarify an ambiguous project, or reduce deadline risk gain additional weight.",
+    },
+    {
+      title: "Friction penalties",
+      body: "Blocked ancestry, unresolved child structure, repeated deferral, and oversized work blocks reduce score even when the task looks important.",
     },
   ];
 
@@ -183,7 +183,7 @@ function ScoringModel() {
       <div className="help-flow-header">
         <div className="help-flow-title">Guidance model</div>
         <div className="help-flow-subtitle">
-          Today does not use a single ranking rule. It combines several signals to reduce ambiguity around the next good move.
+          Today uses a layered scoring model rather than a single ranking rule.
         </div>
       </div>
       <div className="help-flow-grid">
@@ -195,6 +195,23 @@ function ScoringModel() {
           </article>
         ))}
       </div>
+    </div>
+  );
+}
+
+function ScoreList({
+  items,
+}: {
+  items: Array<{ label: string; detail: string }>;
+}) {
+  return (
+    <div style={{ display: "grid", gap: 10, marginTop: 12 }}>
+      {items.map((item) => (
+        <div key={item.label} className="help-flow-card">
+          <div className="help-flow-card-title">{item.label}</div>
+          <div className="help-flow-body">{item.detail}</div>
+        </div>
+      ))}
     </div>
   );
 }
@@ -235,9 +252,9 @@ function EgsGuideTab() {
         </p>
         <p>
           EGS moves part of that interpretive work into the system itself. It uses workflow state,
-          due pressure, effort, minimum duration, project health, waiting signals, and definition
-          quality to estimate which options are credible now and which parts of the system need
-          repair first.
+          due pressure, effort, minimum duration, project health, waiting signals, definition
+          quality, and structural readiness to estimate which options are credible now and which
+          parts of the system need repair first.
         </p>
         <p>
           This does not mean EGS tries to automate judgement completely. It does not attempt to
@@ -331,6 +348,41 @@ function EgsGuideTab() {
         </Callout>
       </Section>
 
+      <Section id="egs-readiness-model" title="Task readiness and structural dependency">
+        <p>
+          EGS does not yet use a full explicit dependency graph such as “Task B depends on Task A”.
+          Instead, it now uses a pragmatic <strong>structural readiness model</strong>. This means
+          the system asks whether a task is genuinely executable given its place in the hierarchy,
+          its surrounding states, and how well defined it is.
+        </p>
+        <p>
+          In practice, a task can be weakened or blocked by three broad classes of condition:
+        </p>
+        <ul>
+          <li>
+            <strong>Ancestor condition</strong> — a parent or higher ancestor is still in Inbox,
+            Waiting, Someday, Reference, or Completed, so the child does not sit on a clean
+            executable path.
+          </li>
+          <li>
+            <strong>Child condition</strong> — the task has open children, especially actionable
+            children, which suggests the real executable unit may be lower in the tree.
+          </li>
+          <li>
+            <strong>Definition condition</strong> — the task lacks enough metadata to be trusted as
+            immediately startable.
+          </li>
+        </ul>
+        <p>
+          This approach is deliberately pragmatic. It materially improves Today trust without
+          requiring a major domain rewrite. The system becomes better at distinguishing
+          “important-looking” from “actually executable now”.
+        </p>
+        <Callout title="Key distinction" tone="accent">
+          Readiness is not the same as urgency. A task can be urgent but still not genuinely ready.
+        </Callout>
+      </Section>
+
       <Section id="egs-prioritisation" title="How prioritisation works conceptually">
         <p>
           EGS does not rely on one simplistic ranking rule such as due date, user priority, or
@@ -373,12 +425,290 @@ function EgsGuideTab() {
         </p>
         <ScoringModel />
         <p>
-          In broad terms, the model first checks whether a task is realistically available. It then
-          increases or decreases credibility based on time pressure, project significance, recent
-          movement, effort fit, and clarity. This means a task with a distant due date can still rank
-          highly if it is the clearest high-leverage move, while a vague task with nominal priority
-          may rank poorly because it still needs clarification.
+          The scoring model can be understood in five stages:
         </p>
+        <ol>
+          <li>determine whether the task is eligible for Today ranking at all</li>
+          <li>estimate execution readiness</li>
+          <li>add positive score contributions</li>
+          <li>apply friction penalties</li>
+          <li>select Best Next Action from only the stronger readiness tiers</li>
+        </ol>
+
+        <h3>1. Eligibility gate</h3>
+        <p>
+          Before a task is scored, the system excludes items that are not suitable for direct
+          execution ranking. In practice, a task is not considered a Today execution candidate if it
+          is a project, completed, reference, someday, inbox, or waiting. The main candidate pool
+          is therefore actions in <strong>Next</strong> or <strong>Scheduled</strong>.
+        </p>
+        <p>
+          This matters because it prevents the ranking engine from pretending that every open record
+          is a reasonable execution option.
+        </p>
+
+        <h3>2. Readiness tiers</h3>
+        <p>
+          Each candidate task is then assessed for execution readiness. The system uses four tiers:
+        </p>
+
+        <ScoreList
+          items={[
+            {
+              label: "Ready",
+              detail:
+                "Leaf-like task, not structurally blocked, and has all three core readiness metadata fields: context, effort, and minimum duration.",
+            },
+            {
+              label: "WeakReady",
+              detail:
+                "Not structurally blocked and has partial but reasonably usable metadata, or is time-sensitive enough to remain plausible despite some missing definition.",
+            },
+            {
+              label: "NotReady",
+              detail:
+                "Task may be important, but it still has unresolved child structure, weak definition, or other signs that it is not yet a clean immediate execution unit.",
+            },
+            {
+              label: "Blocked",
+              detail:
+                "Task is suppressed by ancestor state, blocking child state, or its own blocked state such as Waiting.",
+            },
+          ]}
+        />
+
+        <p>
+          Best Next Action is selected only from tasks assessed as <strong>Ready</strong> or
+          <strong> WeakReady</strong>. This is one of the most important trust improvements in the
+          system.
+        </p>
+
+        <h3>3. Base readiness score</h3>
+        <p>
+          The first major score contribution comes from state plus readiness quality:
+        </p>
+
+        <ScoreList
+          items={[
+            {
+              label: "Base by state",
+              detail:
+                "Next starts at +40. Scheduled starts at +20. This reflects the stronger assumption that Next should be immediately executable.",
+            },
+            {
+              label: "Readiness tier adjustment",
+              detail:
+                "Ready adds +18. WeakReady adds +8. NotReady subtracts 18. Blocked subtracts 42.",
+            },
+            {
+              label: "Metadata reinforcement",
+              detail:
+                "Context adds +6, effort adds +4, and minimum duration adds +6 when the readiness-tier path is used. If no project-context readiness is available, fallback scoring uses context +8, effort +6, minimum duration +8, with penalties for missing fields.",
+            },
+          ]}
+        />
+
+        <h3>4. Due pressure contribution</h3>
+        <p>
+          Real time sensitivity can materially raise a task’s score:
+        </p>
+
+        <ScoreList
+          items={[
+            { label: "Overdue", detail: "Adds +34." },
+            { label: "Due today", detail: "Adds +28." },
+            { label: "Due tomorrow", detail: "Adds +22." },
+            { label: "Due within 3 days", detail: "Adds +14." },
+            { label: "Due within 7 days", detail: "Adds +6." },
+          ]}
+        />
+
+        <p>
+          Due pressure is strong, but it is not absolute. A structurally poor task can still be held
+          back even if it is late.
+        </p>
+
+        <h3>5. Focus-window fit contribution</h3>
+        <p>
+          EGS tries to prefer tasks that fit real execution windows rather than assuming all work
+          should be treated alike. Minimum duration is preferred over effort when both are present,
+          because it is a better indicator of the smallest uninterrupted block required to start
+          properly.
+        </p>
+
+        <ScoreList
+          items={[
+            { label: "Minimum duration ≤ 15 min", detail: "Adds +14." },
+            { label: "Minimum duration ≤ 30 min", detail: "Adds +20." },
+            { label: "Minimum duration ≤ 60 min", detail: "Adds +18." },
+            { label: "Minimum duration ≤ 90 min", detail: "Adds +8." },
+            { label: "Minimum duration ≤ 120 min", detail: "Adds -4." },
+            { label: "Minimum duration > 120 min", detail: "Adds -12." },
+            { label: "Effort fallback ≤ 15 min", detail: "Adds +10 when no minimum duration is available." },
+            { label: "Effort fallback ≤ 30 min", detail: "Adds +14." },
+            { label: "Effort fallback ≤ 60 min", detail: "Adds +12." },
+            { label: "Effort fallback ≤ 120 min", detail: "Adds +4." },
+            { label: "Effort fallback > 120 min", detail: "Adds -6." },
+          ]}
+        />
+
+        <p>
+          This means the model tends to favour tasks that fit an identifiable block of time rather
+          than sprawling ambiguous work.
+        </p>
+
+        <h3>6. Metadata quality contribution</h3>
+        <p>
+          EGS rewards tasks that are well specified because they are easier to start cleanly:
+        </p>
+
+        <ScoreList
+          items={[
+            {
+              label: "All 3 fields present",
+              detail:
+                "Context + effort + minimum duration together add +10 for Well defined and +10 for Ready to start, for a total of +20 from the metadata-quality layer.",
+            },
+            {
+              label: "Any 2 fields present",
+              detail: "Adds +5 for Ready to start.",
+            },
+            {
+              label: "Only 1 field present",
+              detail: "Adds +1 for Ready to start.",
+            },
+            {
+              label: "No fields present",
+              detail: "No metadata-quality boost is granted.",
+            },
+          ]}
+        />
+
+        <h3>7. Priority contribution</h3>
+        <p>
+          User priority still matters, but it is treated as one signal among several:
+        </p>
+
+        <ScoreList
+          items={[
+            { label: "Priority 5", detail: "Adds +26." },
+            { label: "Priority 4", detail: "Adds +20." },
+            { label: "Priority 3", detail: "Adds +14." },
+            { label: "Priority 2", detail: "Adds +8." },
+            { label: "Priority 1", detail: "Adds +4." },
+          ]}
+        />
+
+        <h3>8. Momentum and project-leverage contribution</h3>
+        <p>
+          The model also rewards tasks that have special leverage within their project context:
+        </p>
+
+        <ScoreList
+          items={[
+            {
+              label: "Only clear next step",
+              detail:
+                "Adds +14 when the task is the only actionable or only Next task in the project context.",
+            },
+            {
+              label: "Restores momentum",
+              detail:
+                "Adds +10 when the task is the lead action in a project with low momentum.",
+            },
+            {
+              label: "Clarifies project",
+              detail:
+                "Adds +8 when the task is the lead action in a project that still needs clarification or a visible path.",
+            },
+            {
+              label: "Reduces deadline risk",
+              detail:
+                "Adds +8 when the project context is under deadline pressure.",
+            },
+            {
+              label: "Scheduled for today",
+              detail:
+                "Adds +6 when the task is Scheduled and the scheduled date is today.",
+            },
+            {
+              label: "Task age / momentum nudge",
+              detail:
+                "Older open tasks gain a modest nudge: +4 at 7+ days, +8 at 14+ days, +10 at 30+ days, and +8 at 60+ days. This is not a stale-task rule; it is a mild encouragement not to let defined work drift forever.",
+            },
+          ]}
+        />
+
+        <h3>9. Friction penalties</h3>
+        <p>
+          Positive scores are then offset by structural and behavioural friction penalties:
+        </p>
+
+        <ScoreList
+          items={[
+            {
+              label: "Scheduled in the future",
+              detail:
+                "Subtracts 8 when the task is Scheduled but the date is still in the future.",
+            },
+            {
+              label: "Scheduled for today",
+              detail:
+                "Adds back +4 inside the penalty layer, partly offsetting the future-date penalty logic.",
+            },
+            {
+              label: "Repeated deferral",
+              detail:
+                "If defer count is 2 or 3, subtract 4. If defer count is 4 or more, subtract 10.",
+            },
+            {
+              label: "Oversized task block",
+              detail:
+                "Subtracts 10 when minimum duration is at least 120 minutes, or when effort is very large without a clearer block definition.",
+            },
+            {
+              label: "Blocked ancestor state",
+              detail:
+                "Subtracts 20 when a parent or higher ancestor is in a blocking or structurally unsuitable state.",
+            },
+            {
+              label: "Blocked descendant state",
+              detail:
+                "Subtracts 18 when a child state indicates unresolved blockage beneath the task.",
+            },
+            {
+              label: "Actionable children exist",
+              detail:
+                "Subtracts 14 when the task has actionable children, suggesting the true execution unit is lower in the tree.",
+            },
+            {
+              label: "Open children exist",
+              detail:
+                "Subtracts 10 when the task still has unresolved open children but not clearly actionable children.",
+            },
+            {
+              label: "Missing readiness metadata",
+              detail:
+                "Subtracts 3 for each missing readiness field within the structural readiness model.",
+            },
+          ]}
+        />
+
+        <h3>10. Best Next Action threshold</h3>
+        <p>
+          After scoring, the system does not automatically take the top-ranked item as Best Next
+          Action. The task must also:
+        </p>
+        <ul>
+          <li>be eligible for Today execution ranking</li>
+          <li>be classified as Ready or WeakReady</li>
+          <li>score at least <strong>35</strong></li>
+        </ul>
+        <p>
+          This threshold prevents the interface from confidently presenting a low-quality task as the
+          one best move merely because everything else is even weaker.
+        </p>
+
         <Callout title="What the score is trying to do" tone="accent">
           The score is not a claim of objective truth. It is a structured estimate of execution
           credibility.
@@ -398,6 +728,17 @@ function EgsGuideTab() {
           believable recommendation balances importance, urgency, and practical startability.
         </p>
         <p>
+          The strongest Best Next Action candidates therefore tend to have this shape:
+        </p>
+        <ul>
+          <li>the task is in Next, or occasionally Scheduled for today</li>
+          <li>it is a leaf or near-leaf execution unit</li>
+          <li>it has no blocking ancestor condition</li>
+          <li>it has no unresolved child structure that makes it too coarse</li>
+          <li>it has at least moderate metadata quality</li>
+          <li>it sits in a meaningful project context or carries real due pressure</li>
+        </ul>
+        <p>
           If Best Next Action repeatedly feels wrong, the first diagnosis should usually be data
           quality rather than scoring failure. Common causes include vague tasks, overused scheduled
           dates, stale waiting items, and projects with missing executable paths.
@@ -410,23 +751,94 @@ function EgsGuideTab() {
           system itself. Guided Actions therefore surface maintenance interventions that keep the
           guidance trustworthy.
         </p>
-        <p>Typical examples include:</p>
+        <p>
+          Current Guided Actions can include:
+        </p>
         <ul>
-          <li>projects that no longer have a next action</li>
-          <li>waiting items that need a follow-up</li>
-          <li>scheduled commitments that have drifted or become unrealistic</li>
-          <li>stale projects that are still open but no longer moving</li>
-          <li>items whose wording is too vague to execute confidently</li>
+          <li>
+            <strong>Process Inbox</strong> — Inbox items still require clarification.
+          </li>
+          <li>
+            <strong>Follow Up Waiting</strong> — waiting items are old enough that they should
+            likely be nudged.
+          </li>
+          <li>
+            <strong>Clarify Projects</strong> — projects have open work but no clean visible next
+            path.
+          </li>
+          <li>
+            <strong>Restore Project Momentum</strong> — projects are cold or stalled and need a
+            restart move.
+          </li>
+          <li>
+            <strong>Unblock Waiting Projects</strong> — project progress is constrained by waiting
+            work.
+          </li>
+          <li>
+            <strong>Break Down Large Tasks</strong> — repeatedly deferred oversized work likely needs
+            decomposition.
+          </li>
+          <li>
+            <strong>Prepare Next Actions</strong> — tasks are marked Next or Scheduled but are not
+            fully execution-ready yet.
+          </li>
         </ul>
         <p>
-          These recommendations matter because system quality erodes quietly. Guided Actions help the
-          user repair the data model before visible overload sets in.
+          The new <strong>Prepare Next Actions</strong> signal is especially important. It identifies
+          one of the classic trust failures in task systems: something is labelled as actionable, but
+          in practice it is still structurally weak, under-defined, or blocked by unresolved tree
+          structure.
+        </p>
+        <Callout title="Why Guided Actions matter">
+          A mature execution system must sometimes tell you to repair the system before it tells you
+          to do more work inside it.
+        </Callout>
+      </Section>
+
+      <Section id="egs-project-health" title="Project Health and what it means">
+        <p>
+          Project Health summarises whether an outcome has believable forward motion, real blockage,
+          deadline risk, or structural ambiguity. It is not a decorative dashboard. It is a
+          diagnostic surface for protecting execution reliability.
+        </p>
+        <p>
+          Project Health uses four key dimensions:
+        </p>
+
+        <ScoreList
+          items={[
+            {
+              label: "Momentum",
+              detail:
+                "Strong, warm, cold, or stalled. This reflects recent completion and recent activity in the project.",
+            },
+            {
+              label: "Clarity",
+              detail:
+                "Clear, needs next action, needs clarification, blocked, or parked. This reflects whether the project has a believable execution path.",
+            },
+            {
+              label: "Readiness",
+              detail:
+                "Ready, weakReady, blocked, or notReady at the project level, derived mainly from presence and definition quality of next actions.",
+            },
+            {
+              label: "Blockage",
+              detail:
+                "None, waiting, or waitingRisk, depending on whether forward motion is dominated by waiting items and whether those waiting items are stale enough to follow up.",
+            },
+          ]}
+        />
+
+        <p>
+          Project severity rises when there is deadline pressure, waiting risk, missing path, low
+          momentum, or too much open work with not enough executable structure.
         </p>
       </Section>
 
       <Section id="egs-review-discipline" title="Review discipline and system trust">
         <p>
-          Review is the mechanism that keeps EGS believable. Without review, inbox items linger,
+          Review is the mechanism that keeps EGS believable. Without review, Inbox items linger,
           waiting work goes stale, projects lose executable paths, scheduled work becomes dishonest,
           and Today becomes less credible. In that sense, review is not administrative overhead. It
           is how the system earns the right to guide.
@@ -438,11 +850,82 @@ function EgsGuideTab() {
           <li>repairing scheduled work that is no longer realistic</li>
           <li>restoring clear next actions to active projects</li>
           <li>reclassifying stale optional work into Someday when appropriate</li>
+          <li>repairing Next items that are still too vague or structurally weak</li>
         </ul>
         <Callout title="Important principle">
           The system becomes trustworthy when the user can assume that open items mean something
           accurate and current.
         </Callout>
+      </Section>
+
+      <Section id="egs-inbox-to-project" title="Inbox triage into projects">
+        <p>
+          EGS now supports a practical triage move for captured work: filing an Inbox action under an
+          existing project. This matters because many captured items are not standalone tasks. They
+          are really steps inside an existing outcome.
+        </p>
+        <p>
+          The intent is:
+        </p>
+        <ol>
+          <li>capture quickly into Inbox when speed matters</li>
+          <li>later decide that the item belongs within a known project</li>
+          <li>file it under that project as a child action</li>
+          <li>choose the resulting workflow state there</li>
+        </ol>
+        <p>
+          This produces a better operating model than forcing the user to either leave the item as a
+          standalone action or manually recreate it later under the project tree.
+        </p>
+        <p>
+          Conceptually, this strengthens the system in three ways:
+        </p>
+        <ul>
+          <li>Inbox processing becomes faster and more realistic</li>
+          <li>project continuity improves because captured work can be placed where it belongs</li>
+          <li>Today and Project Health gain a more accurate structural picture</li>
+        </ul>
+        <Callout title="Practical rule" tone="accent">
+          If a captured item is really part of an existing outcome, file it under the project rather
+          than leaving it as an isolated standalone action.
+        </Callout>
+      </Section>
+
+      <Section id="egs-scoring-examples" title="Scoring examples">
+        <p>
+          It is often easier to understand the scoring model through examples than through raw rules.
+        </p>
+
+        <h3>Example 1 — strong Best Next Action candidate</h3>
+        <p>
+          A Next task with context, effort, minimum duration, priority 4, and a 30-minute block
+          requirement will often rank strongly. If it is also the clearest step in a project that
+          needs momentum, it may gain additional leverage points and become a natural Best Next
+          Action.
+        </p>
+
+        <h3>Example 2 — urgent but structurally weak task</h3>
+        <p>
+          Suppose a task is overdue and therefore gains a large due-pressure boost. But it also has
+          actionable children, missing metadata, and a blocking ancestor condition. The urgency
+          points help, but the structural penalties may still keep it out of Best Next Action. This
+          is intentional. The system is saying: this matters, but it still is not a clean immediate
+          move.
+        </p>
+
+        <h3>Example 3 — scheduled task in the future</h3>
+        <p>
+          A Scheduled task with a future date begins with a lower base than Next and also receives a
+          future-date penalty. That does not mean it disappears. It means EGS is less likely to
+          treat it as the best current move before its scheduled window arrives.
+        </p>
+
+        <h3>Example 4 — repeated deferral of large work</h3>
+        <p>
+          A task with a very large minimum duration and several recorded deferrals is penalised
+          heavily enough that it will usually stop dominating Today. At that point, Guided Actions
+          may instead encourage breakdown or repair rather than continued theatrical intention.
+        </p>
       </Section>
 
       <Section id="egs-common-failures" title="Common failure modes">
@@ -453,6 +936,8 @@ function EgsGuideTab() {
           <li>scheduling aspirational work too aggressively</li>
           <li>writing vague tasks that cannot be started in one sitting</li>
           <li>treating waiting as a place to forget rather than a place to follow up from</li>
+          <li>marking parent tasks as Next when the real executable work lives in children</li>
+          <li>leaving Next items under blocked or unclear ancestors</li>
           <li>adding excessive metadata that does not improve execution quality</li>
           <li>ignoring review until trust in the system erodes</li>
         </ul>
@@ -475,6 +960,7 @@ function EgsGuideTab() {
           <li>clarification is honest</li>
           <li>projects have real executable paths</li>
           <li>scheduling is conservative</li>
+          <li>Next means genuinely executable, not merely important</li>
           <li>review is regular enough that Today remains believable</li>
         </ul>
         <Callout title="Working standard" tone="accent">
@@ -520,7 +1006,27 @@ function AppGuideTab() {
           <li>using projects only for true multi-step outcomes</li>
           <li>using subtasks to express real structure rather than ornamental nesting</li>
           <li>keeping wording explicit enough that a future you can act without rethinking</li>
+          <li>using Next sparingly and honestly for things that can really begin now</li>
         </ul>
+      </Section>
+
+      <Section id="app-inbox-processing" title="Processing Inbox well">
+        <p>
+          Inbox is a capture buffer, not a working list. When processing Inbox, the aim is to decide
+          what each item actually is. Common outcomes are:
+        </p>
+        <ul>
+          <li>discard it if it no longer matters</li>
+          <li>move it to Reference if it is information, not action</li>
+          <li>mark it Someday if it is optional rather than current</li>
+          <li>turn it into a standalone Next or Scheduled action</li>
+          <li>turn it into a project if it is really a multi-step outcome</li>
+          <li>file it under an existing project if it is really part of that outcome</li>
+        </ul>
+        <p>
+          The new project-filing capability is especially useful for real-world capture, where many
+          ideas arrive without structure and are best placed properly only during later clarification.
+        </p>
       </Section>
 
       <Section id="app-today-page" title="Today page">
@@ -572,7 +1078,8 @@ function AppGuideTab() {
           </li>
           <li>
             <strong>Maintenance signals</strong> indicate that the system itself needs attention:
-            Inbox processing, waiting follow-up, date repair, or project path repair.
+            Inbox processing, waiting follow-up, date repair, project path repair, or preparation of
+            weak Next items.
           </li>
         </ul>
         <p>
@@ -590,12 +1097,13 @@ function AppGuideTab() {
         </p>
         <p>
           The correct response to Project Health is diagnostic action. When a project is flagged,
-          ask: does it still have a next move, does it need a follow-up, is the date honest, and is
-          the wording specific enough for execution?
+          ask: does it still have a next move, does it need a follow-up, is the date honest, is the
+          lead step structurally executable, and is the wording specific enough for execution?
         </p>
         <Callout title="Use it diagnostically">
-          Project health is most useful when it triggers a repair: add the next action, follow up,
-          renegotiate the date, or simplify the project model.
+          Project Health is most useful when it triggers a repair: add the next action, follow up,
+          renegotiate the date, simplify the project model, or file the next captured step into the
+          right place.
         </Callout>
       </Section>
 
@@ -645,6 +1153,7 @@ function AppGuideTab() {
           <li>check waiting items that need a nudge</li>
           <li>repair scheduled work that has become unrealistic or late</li>
           <li>restore missing execution paths in active projects</li>
+          <li>repair weak Next items that are not truly ready</li>
           <li>reclassify non-current work into Someday when appropriate</li>
         </ul>
       </Section>
@@ -655,6 +1164,8 @@ function AppGuideTab() {
           <li>Prefer clear wording over clever wording.</li>
           <li>Do not over-schedule hoped-for work.</li>
           <li>Use projects for outcomes, not for decorative grouping.</li>
+          <li>Mark Next only when the item is genuinely startable.</li>
+          <li>Use child structure when it clarifies execution, not when it hides it.</li>
           <li>Review often enough that Today remains believable.</li>
           <li>When the system feels noisy, simplify the data before changing the model.</li>
         </ul>
@@ -668,6 +1179,8 @@ function AppGuideTab() {
           <li>Tasks are phrased too vaguely.</li>
           <li>Scheduled is being used for aspirational work.</li>
           <li>Waiting items are not being reviewed.</li>
+          <li>Parent tasks are being treated as execution units even though the real work is lower down.</li>
+          <li>Tasks are labelled Next before they are truly ready.</li>
           <li>Metadata has become noisy without improving judgement.</li>
         </ul>
         <p>
@@ -700,11 +1213,15 @@ export default function HelpPage() {
     { id: "egs-operating-cycle", label: "Operating cycle" },
     { id: "egs-states", label: "Core states" },
     { id: "egs-projects-next-actions", label: "Projects and paths" },
+    { id: "egs-readiness-model", label: "Readiness model" },
     { id: "egs-prioritisation", label: "Prioritisation" },
     { id: "egs-scoring-model", label: "Scoring model" },
     { id: "egs-best-next-action", label: "Best Next Action" },
     { id: "egs-guided-actions", label: "Guided Actions" },
+    { id: "egs-project-health", label: "Project Health" },
     { id: "egs-review-discipline", label: "Review discipline" },
+    { id: "egs-inbox-to-project", label: "Inbox to project" },
+    { id: "egs-scoring-examples", label: "Scoring examples" },
     { id: "egs-common-failures", label: "Failure modes" },
     { id: "egs-philosophy", label: "Philosophy of use" },
   ];
@@ -712,6 +1229,7 @@ export default function HelpPage() {
   const appToc: TocItem[] = [
     { id: "app-mental-model", label: "Mental model" },
     { id: "app-tasks-page", label: "Tasks page" },
+    { id: "app-inbox-processing", label: "Inbox processing" },
     { id: "app-today-page", label: "Today page" },
     { id: "app-execution-signals", label: "Execution signals" },
     { id: "app-project-health", label: "Project Health" },

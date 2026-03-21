@@ -1,5 +1,6 @@
-import type { TodayGuidedActions, TodayTask } from "@tm/shared";
-import type { TodayProjectHealthSummary } from "@tm/shared";
+import type { TodayGuidedActions, TodayProjectHealthSummary, TodayTask } from "@tm/shared";
+import type { TaskProjectContext } from "../projects/intelligence";
+import { taskRefKey } from "./hierarchy";
 import { effortToMinutes, isWaitingFollowUp, minimumDurationToMinutes } from "./scoring";
 
 const DEFER_COUNT_ATTR = "_egsDeferCount";
@@ -17,14 +18,26 @@ function isLargeDeferredTask(task: TodayTask): boolean {
   return deferCount >= 2 && (effortMinutes >= 120 || blockMinutes >= 120);
 }
 
+function needsPreparation(task: TodayTask, context?: TaskProjectContext): boolean {
+  if (task.entityType === "project") return false;
+  if (task.state !== "next" && task.state !== "scheduled") return false;
+  if (!context) {
+    const metadataCount = [task.context?.trim(), task.effort, task.minimumDuration].filter(Boolean).length;
+    return metadataCount < 2;
+  }
+  return context.taskExecutionReadiness === "notReady" || context.taskExecutionReadiness === "blocked";
+}
+
 export function buildGuidedActions(
   tasks: TodayTask[],
   projectHealth: TodayProjectHealthSummary,
-  now: Date
+  now: Date,
+  taskContextByKey: Map<string, TaskProjectContext>
 ): TodayGuidedActions {
   const inbox = tasks.filter((task) => task.entityType !== "project" && task.state === "inbox");
   const waiting = tasks.filter((task) => task.entityType !== "project" && isWaitingFollowUp(task, now));
   const largeDeferred = tasks.filter(isLargeDeferredTask);
+  const prepareNext = tasks.filter((task) => needsPreparation(task, taskContextByKey.get(taskRefKey(task))));
 
   const guided: TodayGuidedActions = {};
 
@@ -54,6 +67,9 @@ export function buildGuidedActions(
   }
   if (largeDeferred.length) {
     guided.breakLargeTasks = { count: largeDeferred.length, sampleTitles: sampleTitles(largeDeferred) };
+  }
+  if (prepareNext.length) {
+    guided.prepareNextActions = { count: prepareNext.length, sampleTitles: sampleTitles(prepareNext) };
   }
 
   return guided;
