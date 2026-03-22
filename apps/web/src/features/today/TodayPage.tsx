@@ -81,45 +81,6 @@ function withDeferredAttrs(task: TodayTask) {
   };
 }
 
-function taskKey(task: TodayTask): string {
-  return `${task.source}:${task.taskId}`;
-}
-
-function getTaskEffortMinutes(task: TodayTask): number {
-  const anyTask = task as TodayTask & {
-    effortMinutes?: number;
-    effortMins?: number;
-    effort?: number | string | null;
-  };
-
-  if (typeof anyTask.effortMinutes === "number") return anyTask.effortMinutes;
-  if (typeof anyTask.effortMins === "number") return anyTask.effortMins;
-  if (typeof anyTask.effort === "number") return anyTask.effort;
-  if (typeof anyTask.effort === "string") {
-    const match = anyTask.effort.match(/\d+/);
-    if (match) return Number(match[0]);
-  }
-  return 0;
-}
-
-function extractTodayTask(value: unknown): TodayTask | null {
-  if (!value || typeof value !== "object") return null;
-
-  const candidate = value as Record<string, unknown>;
-  if (typeof candidate.taskId === "string") {
-    return value as TodayTask;
-  }
-
-  const nestedTask = candidate.task;
-  if (nestedTask && typeof nestedTask === "object") {
-    const nested = nestedTask as Record<string, unknown>;
-    if (typeof nested.taskId === "string") {
-      return nestedTask as TodayTask;
-    }
-  }
-
-  return null;
-}
 
 export default function TodayPage() {
   const { tokens } = useAuth();
@@ -222,60 +183,6 @@ export default function TodayPage() {
 
   const modeData = data?.recommendationModes?.[mode] ?? null;
 
-  const todayMetrics = useMemo(() => {
-    const taskMap = new Map<string, TodayTask>();
-
-    const bestNextTask = extractTodayTask(modeData?.bestNextAction);
-    if (bestNextTask) {
-      taskMap.set(taskKey(bestNextTask), bestNextTask);
-    }
-
-    for (const item of modeData?.recommended ?? []) {
-      const task = extractTodayTask(item);
-      if (task) {
-        taskMap.set(taskKey(task), task);
-      }
-    }
-
-    const tasks = Array.from(taskMap.values());
-    const nowMs = Date.now();
-    const dueSoonThresholdMs = nowMs + 3 * 24 * 60 * 60 * 1000;
-    const staleThresholdMs = nowMs - 7 * 24 * 60 * 60 * 1000;
-
-    const readyTasks = tasks.filter((task) => task.state === "next").length;
-
-    const overdueTasks = tasks.filter((task) => {
-      if (!task.dueDate) return false;
-      const dueMs = new Date(task.dueDate).getTime();
-      return !Number.isNaN(dueMs) && dueMs < nowMs;
-    }).length;
-
-    const dueSoonTasks = tasks.filter((task) => {
-      if (!task.dueDate) return false;
-      const dueMs = new Date(task.dueDate).getTime();
-      return !Number.isNaN(dueMs) && dueMs >= nowMs && dueMs <= dueSoonThresholdMs;
-    }).length;
-
-    const blockedTasks = tasks.filter((task) => task.state === "waiting" || Boolean(task.waitingFor)).length;
-
-    const staleTasks = tasks.filter((task) => {
-      const stamp = task.updatedAt ?? task.createdAt;
-      if (!stamp) return false;
-      const updatedMs = new Date(stamp).getTime();
-      return !Number.isNaN(updatedMs) && updatedMs < staleThresholdMs;
-    }).length;
-
-    const totalEffortMinutes = tasks.reduce((sum, task) => sum + getTaskEffortMinutes(task), 0);
-
-    return {
-      readyTasks,
-      overdueTasks,
-      dueSoonTasks,
-      blockedTasks,
-      staleTasks,
-      totalEffortMinutes,
-    };
-  }, [modeData]);
 
   const showEmpty =
     !loading &&
@@ -300,7 +207,7 @@ export default function TodayPage() {
         </div>
 
         <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 10, flex: "0 1 auto" }}>
-          {modeData ? <ExecutionStateBadge metrics={todayMetrics} /> : null}
+          {data?.executionState ? <ExecutionStateBadge state={data.executionState} /> : null}
           <label className="row" style={{ gap: 8, fontWeight: 600 }}>
             <input type="checkbox" checked={includeShared} onChange={(e) => setIncludeShared(e.target.checked)} />
             Include shared tasks

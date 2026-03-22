@@ -7,7 +7,7 @@ import type { HttpHandlerContext } from "../lib/handler";
 import { createSubtask } from "../tasks/repo";
 import { log, toErrorInfo } from "../lib/log";
 import { parseJsonBody } from "../lib/request";
-import { validateAttrs, validateDueDate, validateEffort, validateMinimumDuration, validatePriority } from "../tasks/validate";
+import { validateAttrs, validateDueDate, validateEffort, validateMinimumDuration, validateMinutesField, validatePriority } from "../tasks/validate";
 import { isEntityType, isWorkflowState, stateToStatus, validateMergedTask } from "../tasks/gtd";
 
 function isUuidV4(v: string): boolean {
@@ -50,6 +50,15 @@ export const handler = withHttp(async (
   const minimumDurationR = validateMinimumDuration((body as any).minimumDuration);
   if (!minimumDurationR.ok) return badRequest(minimumDurationR.message, undefined, requestId);
 
+  const estimatedMinutesR = validateMinutesField((body as any).estimatedMinutes, "estimatedMinutes");
+  if (!estimatedMinutesR.ok) return badRequest(estimatedMinutesR.message, undefined, requestId);
+
+  const remainingMinutesR = validateMinutesField((body as any).remainingMinutes, "remainingMinutes");
+  if (!remainingMinutesR.ok) return badRequest(remainingMinutesR.message, undefined, requestId);
+
+  const timeSpentMinutesR = validateMinutesField((body as any).timeSpentMinutes, "timeSpentMinutes");
+  if (!timeSpentMinutesR.ok) return badRequest(timeSpentMinutesR.message, undefined, requestId);
+
   const attrsR = validateAttrs((body as any).attrs);
   if (!attrsR.ok) return badRequest(attrsR.message, undefined, requestId);
 
@@ -80,6 +89,19 @@ export const handler = withHttp(async (
   }
 
   const now = new Date().toISOString();
+  const effortMinutes = effortR.value ? (effortR.value.unit === "hours" ? Math.round(effortR.value.value * 60) : Math.round(effortR.value.value * 8 * 60)) : undefined;
+  const estimatedMinutes = estimatedMinutesR.value ?? effortMinutes;
+  const remainingMinutes = remainingMinutesR.value ?? estimatedMinutes;
+  const timeSpentMinutes =
+    timeSpentMinutesR.value ??
+    (estimatedMinutes !== undefined && remainingMinutes !== undefined && estimatedMinutes >= remainingMinutes
+      ? estimatedMinutes - remainingMinutes
+      : undefined);
+
+  if (estimatedMinutes !== undefined && remainingMinutes !== undefined && remainingMinutes > estimatedMinutes) {
+    return badRequest("remainingMinutes cannot exceed estimatedMinutes", undefined, requestId);
+  }
+
   const task: Task = {
     taskId: randomUUID(),
     parentTaskId,
@@ -97,6 +119,9 @@ export const handler = withHttp(async (
     dueDate: dueDateR.value,
     priority: priorityR.value,
     effort: effortR.value,
+    estimatedMinutes,
+    remainingMinutes,
+    timeSpentMinutes,
     minimumDuration: minimumDurationR.value,
     attrs: attrsR.value,
   };

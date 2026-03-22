@@ -47,6 +47,18 @@ export function validateEffort(raw: unknown): { ok: true; value?: EffortEstimate
 }
 
 
+
+
+export function validateMinutesField(
+  raw: unknown,
+  label: string
+): { ok: true; value?: number } | { ok: false; message: string } {
+  if (raw === undefined) return { ok: true, value: undefined };
+  if (typeof raw !== "number" || !Number.isFinite(raw)) return { ok: false, message: `${label} must be a finite number` };
+  if (raw < 0) return { ok: false, message: `${label} must be >= 0` };
+  if (raw > 1000000) return { ok: false, message: `${label} too large` };
+  return { ok: true, value: Math.round(raw) };
+}
 export function validateMinimumDuration(raw: unknown): { ok: true; value?: DurationEstimate } | { ok: false; message: string } {
   if (raw === undefined) return { ok: true, value: undefined };
   if (!isPlainObject(raw)) return { ok: false, message: "minimumDuration must be an object" };

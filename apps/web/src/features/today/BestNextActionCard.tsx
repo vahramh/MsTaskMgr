@@ -1,6 +1,7 @@
 import React from "react";
 import type { TodayExecutionMode, TodayRecommendation, TodayTask } from "@tm/shared";
-import { effortToMinutes, executionModeLabel, minimumDurationToMinutes, prioritySignal } from "./scoring";
+import { executionModeLabel, minimumDurationToMinutes, prioritySignal, remainingMinutesForTask, timeSpentMinutesForTask } from "./scoring";
+import { formatContextSummary } from "../tasks/contextOptions";
 
 function formatDueDate(dueDate?: string): string | null {
   if (!dueDate) return null;
@@ -70,10 +71,12 @@ export default function BestNextActionCard({
 
   const task = item.task;
   const due = formatDueDate(task.dueDate);
-  const effortMinutes = effortToMinutes(task.effort);
+  const remainingMinutes = remainingMinutesForTask(task);
+  const spentMinutes = timeSpentMinutesForTask(task);
   const minimumBlockMinutes = minimumDurationToMinutes(task.minimumDuration);
   const signal = prioritySignal(task, now);
   const readiness = readinessLabel(item.readiness);
+  const context = formatContextSummary(task.context);
 
   return (
     <div className="card" style={{ padding: 16, cursor: "pointer" }} {...cardClickProps(() => onOpenTask(task))}>
@@ -91,9 +94,10 @@ export default function BestNextActionCard({
       <div className="help" style={{ marginTop: 10 }}>
         {task.state ? `${task.state}` : "action"}
         {typeof task.priority === "number" ? ` · P${task.priority}` : ""}
-        {task.context ? ` · ${task.context}` : ""}
-        {effortMinutes !== null ? ` · effort ${effortMinutes}m` : ""}
-        {minimumBlockMinutes !== null ? ` · block ${minimumBlockMinutes}m` : ""}
+        {context ? ` · ${context}` : ""}
+        {remainingMinutes !== null ? ` · remaining ${remainingMinutes}m` : ""}
+        {spentMinutes ? ` · spent ${spentMinutes}m` : ""}
+        {minimumBlockMinutes !== null ? ` · minimum ${minimumBlockMinutes}m` : ""}
         {readiness ? ` · ${readiness}` : ""}
         {due ? ` · due ${due}` : ""}
       </div>

@@ -1,4 +1,4 @@
-import type { DurationUnit, EffortUnit, EntityType, WorkflowState } from "@tm/shared";
+import type { DurationUnit, EffortUnit, EntityType, ExecutionContextOption, WorkflowState } from "@tm/shared";
 import type { HygieneSignal } from "../hygiene";
 
 export type TaskEditorValue = {
@@ -10,12 +10,17 @@ export type TaskEditorValue = {
   priority: string;
   effortValue: string;
   effortUnit: EffortUnit;
+  estimatedMinutes: string;
+  remainingMinutes: string;
+  timeSpentMinutes: string;
   minimumDurationValue: string;
   minimumDurationUnit: DurationUnit;
   attrsJson: string;
+  captureSource: string;
+  advancedOpen: boolean;
   entityType: EntityType;
   state: WorkflowState;
-  context: string;
+  contextTokens: ExecutionContextOption[];
   waitingFor: string;
 };
 

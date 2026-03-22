@@ -44,6 +44,36 @@ export type TaskAttrValue = string | number | boolean | string[];
 
 export type TaskAttributes = Record<string, TaskAttrValue>;
 
+export type ExecutionContextOption =
+  | "computer"
+  | "phone"
+  | "home"
+  | "office"
+  | "out-and-about"
+  | "deep-focus"
+  | "light-admin"
+  | "low-energy"
+  | "calls"
+  | "email"
+  | "agenda"
+  | "quick-win";
+
+export type ExecutionStateLevel = "calm" | "balanced" | "building" | "stressed" | "critical";
+
+export type ExecutionStateSummary = {
+  level: ExecutionStateLevel;
+  summary: string;
+  metrics: {
+    actionableCount: number;
+    overdueCount: number;
+    dueSoonCount: number;
+    blockedCount: number;
+    staleCount: number;
+    readyCount: number;
+    remainingMinutes: number;
+  };
+};
+
 export type Task = {
   taskId: string;
 
@@ -67,7 +97,7 @@ export type Task = {
   /** Workflow state. Required for v2 items; derived from legacy fields during migration. */
   state?: WorkflowState;
 
-  /** Optional context string (e.g. "@home"). */
+  /** Optional controlled multi-context string, stored as comma-separated tokens for compatibility. */
   context?: string;
 
   /** Required when state === "waiting". */
@@ -81,6 +111,15 @@ export type Task = {
   priority?: TaskPriority;
 
   effort?: EffortEstimate;
+
+  /** Total estimate in minutes for progress-aware tasks. */
+  estimatedMinutes?: number;
+
+  /** Remaining effort in minutes. */
+  remainingMinutes?: number;
+
+  /** Time already spent on the task, in minutes. */
+  timeSpentMinutes?: number;
 
   /** Smallest uninterrupted block worth starting this task. */
   minimumDuration?: DurationEstimate;
@@ -99,6 +138,9 @@ export type CreateTaskRequest = {
   dueDate?: string;
   priority?: TaskPriority;
   effort?: EffortEstimate;
+  estimatedMinutes?: number;
+  remainingMinutes?: number;
+  timeSpentMinutes?: number;
   minimumDuration?: DurationEstimate;
   attrs?: TaskAttributes;
 
@@ -131,6 +173,15 @@ export type UpdateTaskRequest = {
 
   /** Set to null to clear. */
   effort?: EffortEstimate | null;
+
+  /** Set to null to clear. */
+  estimatedMinutes?: number | null;
+
+  /** Set to null to clear. */
+  remainingMinutes?: number | null;
+
+  /** Set to null to clear. */
+  timeSpentMinutes?: number | null;
 
   /** Set to null to clear. */
   minimumDuration?: DurationEstimate | null;
@@ -407,6 +458,7 @@ export type TodayOverviewResponse = {
   recommendationModes: Record<TodayExecutionMode, TodayModeRecommendations>;
   guidedActions: TodayGuidedActions;
   projectHealth: TodayProjectHealthSummary;
+  executionState: ExecutionStateSummary;
 };
 
 // ----------------------------------------------------------------------

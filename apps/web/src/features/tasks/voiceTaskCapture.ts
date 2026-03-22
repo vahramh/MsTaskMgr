@@ -131,6 +131,7 @@ export type ParsedVoiceCapture = {
   priority?: 1 | 2 | 3 | 4;
   state?: "waiting" | "scheduled" | "next";
   waitingFor?: string;
+  context?: string;
 };
 
 export function parseVoiceTaskCapture(raw: string, now = new Date()): ParsedVoiceCapture {
@@ -254,6 +255,33 @@ export function parseVoiceTaskCapture(raw: string, now = new Date()): ParsedVoic
     text = text.replace(/\bscheduled\b/gi, " ");
   }
 
+  const spokenContexts: Array<[RegExp, string]> = [
+    [/\bcomputer\b/i, "computer"],
+    [/\bphone\b/i, "phone"],
+    [/\bhome\b/i, "home"],
+    [/\boffice\b/i, "office"],
+    [/\bout and about\b/i, "out-and-about"],
+    [/\bdeep focus\b/i, "deep-focus"],
+    [/\blight admin\b/i, "light-admin"],
+    [/\blow energy\b/i, "low-energy"],
+    [/\bcalls?\b/i, "calls"],
+    [/\bemail\b/i, "email"],
+    [/\bagenda\b/i, "agenda"],
+    [/\bquick win\b/i, "quick-win"],
+  ];
+
+  const capturedContexts: string[] = [];
+  for (const [pattern, value] of spokenContexts) {
+    if (pattern.test(text)) {
+      capturedContexts.push(value);
+      text = text.replace(pattern, " ");
+    }
+  }
+
+  if (capturedContexts.length) {
+    result.context = Array.from(new Set(capturedContexts)).join(", ");
+  }
+    
   text = normaliseWhitespace(text.replace(/^[,.;:!?-]+/, "").replace(/[,.;:!?-]+$/, ""));
   result.cleanTitle = text || raw.trim();
 

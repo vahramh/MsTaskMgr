@@ -6,7 +6,7 @@ import type { HttpHandlerContext } from "../lib/handler";
 import { getTask, updateTask } from "../tasks/repo";
 import { log, toErrorInfo } from "../lib/log";
 import { parseJsonBody } from "../lib/request";
-import { normalizeNullable, validateAttrs, validateDueDate, validateEffort, validateMinimumDuration, validatePriority } from "../tasks/validate";
+import { normalizeNullable, validateAttrs, validateDueDate, validateEffort, validateMinimumDuration, validateMinutesField, validatePriority } from "../tasks/validate";
 import {
   canTransition,
   deriveV2Defaults,
@@ -80,6 +80,24 @@ export const handler = withHttp(
       const r = normalizeNullable((body as any).minimumDuration, validateMinimumDuration, "minimumDuration");
       if (!r.ok) return badRequest(r.message, undefined, requestId);
       patch.minimumDuration = r.value as any;
+    }
+
+    if ((body as any).estimatedMinutes !== undefined) {
+      const r = normalizeNullable((body as any).estimatedMinutes, (v) => validateMinutesField(v, "estimatedMinutes"), "estimatedMinutes");
+      if (!r.ok) return badRequest(r.message, undefined, requestId);
+      (patch as any).estimatedMinutes = r.value as any;
+    }
+
+    if ((body as any).remainingMinutes !== undefined) {
+      const r = normalizeNullable((body as any).remainingMinutes, (v) => validateMinutesField(v, "remainingMinutes"), "remainingMinutes");
+      if (!r.ok) return badRequest(r.message, undefined, requestId);
+      (patch as any).remainingMinutes = r.value as any;
+    }
+
+    if ((body as any).timeSpentMinutes !== undefined) {
+      const r = normalizeNullable((body as any).timeSpentMinutes, (v) => validateMinutesField(v, "timeSpentMinutes"), "timeSpentMinutes");
+      if (!r.ok) return badRequest(r.message, undefined, requestId);
+      (patch as any).timeSpentMinutes = r.value as any;
     }
 
     if ((body as any).attrs !== undefined) {
@@ -167,6 +185,10 @@ export const handler = withHttp(
 
       const vr = validateMergedTask(merged);
       if (!vr.ok) return badRequest(vr.message, undefined, requestId);
+
+      if (merged.estimatedMinutes !== undefined && merged.remainingMinutes !== undefined && merged.remainingMinutes > merged.estimatedMinutes) {
+        return badRequest("remainingMinutes cannot exceed estimatedMinutes", undefined, requestId);
+      }
 
       // Always derive legacy status from merged state.
       patch.status = merged.status;

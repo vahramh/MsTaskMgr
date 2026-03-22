@@ -234,6 +234,9 @@ export default function TasksPage() {
         dueDate: task.dueDate,
         priority: task.priority,
         effort: task.effort,
+        estimatedMinutes: task.estimatedMinutes,
+        remainingMinutes: task.remainingMinutes,
+        timeSpentMinutes: task.timeSpentMinutes,
         minimumDuration: task.minimumDuration,
         attrs: task.attrs,
         entityType: "action",
@@ -505,16 +508,22 @@ export default function TasksPage() {
         priority={createController.state.priority}
         effortValue={createController.state.effortValue}
         effortUnit={createController.state.effortUnit}
+        estimatedMinutes={createController.state.estimatedMinutes}
+        remainingMinutes={createController.state.remainingMinutes}
+        timeSpentMinutes={createController.state.timeSpentMinutes}
         minimumDurationValue={createController.state.minimumDurationValue}
         minimumDurationUnit={createController.state.minimumDurationUnit}
         attrsJson={createController.state.attrsJson}
+        captureSource={createController.state.captureSource}
+        advancedOpen={createController.state.advancedOpen}
         createEntityType={createController.state.createEntityType}
         createState={createController.state.createState}
-        createContext={createController.state.createContext}
+        createContextTokens={createController.state.createContextTokens}
         createWaitingFor={createController.state.createWaitingFor}
         titleError={createController.derived.titleError}
         descriptionError={createController.derived.descriptionError}
         attrsError={createController.derived.attrsError}
+        progressError={createController.derived.progressError}
         gtdCreateError={createController.derived.gtdCreateError}
         canCreate={createController.derived.canCreate}
         descTrimLength={createController.derived.descTrim.length}
@@ -528,12 +537,17 @@ export default function TasksPage() {
         onPriorityChange={createController.actions.setPriority}
         onEffortValueChange={createController.actions.setEffortValue}
         onEffortUnitChange={createController.actions.setEffortUnit}
+        onEstimatedMinutesChange={createController.actions.setEstimatedMinutes}
+        onRemainingMinutesChange={createController.actions.setRemainingMinutes}
+        onTimeSpentMinutesChange={createController.actions.setTimeSpentMinutes}
         onMinimumDurationValueChange={createController.actions.setMinimumDurationValue}
         onMinimumDurationUnitChange={createController.actions.setMinimumDurationUnit}
         onAttrsJsonChange={createController.actions.setAttrsJson}
+        onCaptureSourceChange={createController.actions.setCaptureSource}
+        onAdvancedOpenChange={createController.actions.setAdvancedOpen}
         onCreateEntityTypeChange={createController.actions.setCreateEntityType}
         onCreateStateChange={createController.actions.setCreateState}
-        onCreateContextChange={createController.actions.setCreateContext}
+        onToggleContextToken={createController.actions.toggleContextToken}
         onCreateWaitingForChange={createController.actions.setCreateWaitingFor}
         speechErrorLabel={speechErrorLabel}
       />

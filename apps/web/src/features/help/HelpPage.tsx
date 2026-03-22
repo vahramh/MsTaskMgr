@@ -1037,6 +1037,12 @@ function AppGuideTab() {
         </p>
         <ul>
           <li>
+            <strong>Execution state badge</strong> summarises the condition of the current execution
+            surface as Calm, Balanced, Building, Stressed, or Critical. It is derived from overdue
+            pressure, due-soon load, blocked work, stale tasks, available ready work, and remaining
+            effort volume.
+          </li>
+          <li>
             <strong>Best Next Action</strong> surfaces the strongest immediate move based on current
             evidence.
           </li>
@@ -1053,6 +1059,11 @@ function AppGuideTab() {
             before the user feels obvious overload.
           </li>
         </ul>
+        <p>
+          The execution-state badge is intentionally calm. It is not an alarm light. It is a compact
+          operational reading that tells you whether the system currently looks clean, merely busy,
+          or structurally stressed.
+        </p>
         <p>
           The purpose of Today is not to take control away from the user. It is to start the day, or
           the next work session, with a narrower and more credible field of action.
@@ -1115,15 +1126,17 @@ function AppGuideTab() {
         </p>
         <ul>
           <li>
-            <strong>Context</strong> improves filtering by circumstance, such as calls, errands,
-            office work, or deep work.
+            <strong>Context</strong> is now a controlled multi-select of disciplined execution-fit
+            conditions such as computer, phone, office, deep focus, calls, email, quick win, and
+            low energy. It is intended to improve execution judgement, not become a free-form tag
+            bucket.
           </li>
           <li>
-            <strong>Effort</strong> gives a rough size estimate so larger tasks do not accidentally
-            crowd out smaller executable steps.
+            <strong>Estimated, remaining, and spent minutes</strong> allow larger tasks to be worked
+            incrementally. EGS now distinguishes original size from current remaining effort.
           </li>
           <li>
-            <strong>Minimum duration</strong> protects tasks that require a real uninterrupted block,
+            <strong>Minimum session</strong> protects tasks that require a real uninterrupted block,
             such as analysis, writing, design, and architecture work.
           </li>
           <li>
@@ -1139,6 +1152,64 @@ function AppGuideTab() {
           Add metadata that changes decisions. Skip metadata that merely makes the record look more
           complete.
         </Callout>
+      </Section>
+
+      <Section id="app-context-field" title="Using the context field well">
+        <p>
+          Context is now managed as a controlled vocabulary. This is deliberate. Free-text context
+          fields tend to drift into inconsistent personal tags that weaken filtering and scoring.
+        </p>
+        <p>
+          Use context to describe the execution conditions that materially affect startability:
+          where the work can be done, what medium it needs, or what kind of energy it requires. A
+          task can have several contexts at once, for example <strong>computer + deep focus</strong>
+          or <strong>phone + calls + low energy</strong>.
+        </p>
+        <p>
+          Good context usage improves both filtering and recommendation quality. It makes it easier
+          for Today to distinguish a realistic action from one that only looks attractive on paper.
+        </p>
+      </Section>
+
+      <Section id="app-progress-tracking" title="Progress-aware duration">
+        <p>
+          EGS now supports partially progressed work. A task can have an original estimate, current
+          remaining effort, time already spent, and a minimum useful focus session.
+        </p>
+        <ul>
+          <li><strong>Estimated</strong> is the original size judgement.</li>
+          <li><strong>Remaining</strong> is what still needs doing now.</li>
+          <li><strong>Spent</strong> records progress already made.</li>
+          <li><strong>Minimum session</strong> expresses the smallest worthwhile uninterrupted block.</li>
+        </ul>
+        <p>
+          This matters because many meaningful tasks are not one-shot completions. You may work on a
+          two-hour task for thirty minutes, make real progress, and still have the task remain open.
+          Today and task summaries now use remaining effort more heavily than original estimate when
+          judging execution fit.
+        </p>
+        <p>
+          The editor also supports lightweight work logging so that progress can be recorded without
+          forcing full time-tracking discipline.
+        </p>
+      </Section>
+
+      <Section id="app-advanced-attributes" title="Advanced attributes">
+        <p>
+          Raw JSON is no longer intended as the default editing surface. Common metadata should be
+          handled through normal task fields. Advanced attributes remain available for specialist or
+          system-level cases only.
+        </p>
+        <p>
+          EGS reserves keys beginning with <strong>_egs</strong> for system-managed metadata such as
+          defer counts, last recommendation time, review timestamps, fatigue markers, and capture
+          source. These keys exist to support the guidance engine and should generally not be edited
+          casually.
+        </p>
+        <p>
+          The advanced JSON editor is still available behind an advanced section, with validation, so
+          expert users can inspect or maintain non-standard user metadata when needed.
+        </p>
       </Section>
 
       <Section id="app-review-page" title="Review page">
@@ -1234,6 +1305,9 @@ export default function HelpPage() {
     { id: "app-execution-signals", label: "Execution signals" },
     { id: "app-project-health", label: "Project Health" },
     { id: "app-metadata", label: "Metadata" },
+    { id: "app-context-field", label: "Context field" },
+    { id: "app-progress-tracking", label: "Progress tracking" },
+    { id: "app-advanced-attributes", label: "Advanced attributes" },
     { id: "app-review-page", label: "Review" },
     { id: "app-quick-guidance", label: "Practical guidance" },
     { id: "app-troubleshooting", label: "Troubleshooting" },

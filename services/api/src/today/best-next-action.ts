@@ -9,7 +9,7 @@ import type {
 } from "@tm/shared";
 import type { TaskProjectContext } from "../projects/intelligence";
 import { taskRefKey } from "./hierarchy";
-import { daysFromToday, effortToMinutes, minimumDurationToMinutes } from "./scoring";
+import { daysFromToday, effortToMinutes, estimatedMinutesForTask, minimumDurationToMinutes, remainingMinutesForTask, timeSpentMinutesForTask } from "./scoring";
 
 const MIN_BEST_NEXT_ACTION_SCORE = 35;
 const MAX_REASONS = 3;
@@ -70,7 +70,7 @@ function dueContribution(task: TodayTask, now: Date): Contribution[] {
 
 function focusContribution(task: TodayTask): Contribution[] {
   const minimumMinutes = minimumDurationToMinutes(task.minimumDuration);
-  const effortMinutes = effortToMinutes(task.effort);
+  const effortMinutes = remainingMinutesForTask(task);
   if (minimumMinutes !== null) {
     if (minimumMinutes <= 15) return [{ reason: "Fits 15 min block", value: 14 }];
     if (minimumMinutes <= 30) return [{ reason: "Fits 30 min block", value: 20 }];
@@ -145,13 +145,13 @@ function executionReadinessScore(task: TodayTask, projectContext?: TaskProjectCo
       break;
     default:
       score += task.context?.trim() ? 8 : -6;
-      score += effortToMinutes(task.effort) !== null ? 6 : -6;
+      score += remainingMinutesForTask(task) !== null ? 6 : -6;
       score += minimumDurationToMinutes(task.minimumDuration) !== null ? 8 : -4;
       return score;
   }
 
   score += task.context?.trim() ? 6 : -4;
-  score += effortToMinutes(task.effort) !== null ? 4 : -4;
+  score += remainingMinutesForTask(task) !== null ? 4 : -4;
   score += minimumDurationToMinutes(task.minimumDuration) !== null ? 6 : -3;
   return score;
 }
@@ -168,7 +168,7 @@ function frictionPenalty(task: TodayTask, now: Date, projectContext?: TaskProjec
   else if (deferCount >= 2) penalty -= 4;
 
   const minimumMinutes = minimumDurationToMinutes(task.minimumDuration);
-  const effortMinutes = effortToMinutes(task.effort);
+  const effortMinutes = estimatedMinutesForTask(task);
   if ((minimumMinutes ?? 0) >= 120 || ((effortMinutes ?? 0) >= 240 && minimumMinutes === null)) {
     penalty -= 10;
   }
@@ -197,7 +197,7 @@ function canBeBestNextAction(task: TodayTask, projectContext?: TaskProjectContex
 
 function durationProfile(task: TodayTask): DurationProfile {
   const minimumMinutes = minimumDurationToMinutes(task.minimumDuration);
-  const effortMinutes = effortToMinutes(task.effort);
+  const effortMinutes = remainingMinutesForTask(task);
   return {
     minimumMinutes,
     effortMinutes,
@@ -224,7 +224,7 @@ function inferReadiness(projectContext?: TaskProjectContext, task?: TodayTask): 
     case "blocked":
       return "blocked";
     default: {
-      const metadataCount = [task?.context?.trim(), effortToMinutes(task?.effort), minimumDurationToMinutes(task?.minimumDuration)]
+      const metadataCount = [task?.context?.trim(), remainingMinutesForTask(task as TodayTask), minimumDurationToMinutes(task?.minimumDuration)]
         .filter((value) => value !== null && value !== undefined && value !== "")
         .length;
       return metadataCount >= 3 ? "ready" : metadataCount >= 1 ? "weakReady" : "notReady";
@@ -237,7 +237,7 @@ function activationFrictionScore(task: TodayTask, readiness: TodayRecommendation
   if (task.state === "next") score += 8;
   if (task.context?.trim()) score += 6;
   if (minimumDurationToMinutes(task.minimumDuration) !== null) score += 6;
-  if (effortToMinutes(task.effort) !== null) score += 4;
+  if (remainingMinutesForTask(task) !== null) score += 4;
   if (readiness === "ready") score += 8;
   else if (readiness === "weakReady") score += 4;
   else if (readiness === "notReady") score -= 8;
@@ -249,7 +249,10 @@ function activationFrictionScore(task: TodayTask, readiness: TodayRecommendation
 
 function leverageScore(task: TodayTask, projectContext?: TaskProjectContext): number {
   let score = 0;
+  const startedMinutes = timeSpentMinutesForTask(task) ?? 0;
   if (typeof task.priority === "number") score += task.priority * 2;
+  if (startedMinutes >= 30) score += 6;
+  if (startedMinutes >= 90) score += 4;
   if (projectContext?.onlyActionableTask || projectContext?.onlyNextTask) score += 16;
   if (projectContext?.leadTaskId === task.taskId && projectContext?.projectLowMomentum) score += 14;
   if (projectContext?.leadTaskId === task.taskId && projectContext?.projectNeedsClarification) score += 10;

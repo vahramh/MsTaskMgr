@@ -3,6 +3,8 @@ import type { EntityType, Task, WorkflowState } from "@tm/shared";
 import type { TaskStatus } from "@tm/shared";
 import type { CognitoTokens } from "../../../auth/tokenStore";
 import type { TaskEditorModel } from "../components/taskNodeTypes";
+import { parseContextTokens, serializeContextTokens } from "../contextOptions";
+import { buildTaskAttributes, safeAdvancedJson, splitTaskAttributes } from "../taskMetadata";
 
 type EditorPatch = {
   title?: string;
@@ -10,6 +12,9 @@ type EditorPatch = {
   dueDate?: string | null;
   priority?: any | null;
   effort?: any | null;
+  estimatedMinutes?: number | null;
+  remainingMinutes?: number | null;
+  timeSpentMinutes?: number | null;
   minimumDuration?: any | null;
   attrs?: any | null;
   entityType?: EntityType;
@@ -35,14 +40,6 @@ type Options = {
   pendingForSubtask: (task: Task) => boolean;
 };
 
-function safeJsonStringify(v: any): string {
-  try {
-    return JSON.stringify(v ?? {}, null, 2);
-  } catch {
-    return "{}";
-  }
-}
-
 export function useTaskSurfaceController({
   tokens,
   pendingById,
@@ -62,6 +59,7 @@ export function useTaskSurfaceController({
   const [editor, setEditor] = useState<TaskEditorModel>(null);
 
   const startEdit = useCallback((t: Task) => {
+    const { source } = splitTaskAttributes(t.attrs);
     setEditor({
       taskId: t.taskId,
       parentTaskId: t.parentTaskId,
@@ -71,27 +69,32 @@ export function useTaskSurfaceController({
       priority: t.priority ? String(t.priority) : "",
       effortValue: t.effort ? String(t.effort.value) : "",
       effortUnit: (t.effort?.unit ?? "hours") as any,
+      estimatedMinutes: typeof t.estimatedMinutes === "number" ? String(t.estimatedMinutes) : "",
+      remainingMinutes: typeof t.remainingMinutes === "number" ? String(t.remainingMinutes) : "",
+      timeSpentMinutes: typeof t.timeSpentMinutes === "number" ? String(t.timeSpentMinutes) : "",
       minimumDurationValue: t.minimumDuration ? String(t.minimumDuration.value) : "",
       minimumDurationUnit: (t.minimumDuration?.unit ?? "minutes") as any,
-      attrsJson: safeJsonStringify(t.attrs),
+      attrsJson: safeAdvancedJson(t.attrs),
+      captureSource: source,
+      advancedOpen: false,
       entityType: deriveEntityType(t),
       state: deriveState(t),
-      context: t.context ?? "",
+      contextTokens: parseContextTokens(t.context),
       waitingFor: t.waitingFor ?? "",
     });
   }, [deriveEntityType, deriveState]);
 
-  const buildEditorPatch = useCallback((currentEditor: Exclude<TaskEditorModel, null>) => {
+  const buildEditorPatch = useCallback((currentEditor: Exclude<TaskEditorModel, null>, currentTask: Task) => {
     const newTitle = currentEditor.title.trim();
     const newDesc = currentEditor.description.trim();
-    let attrs: any = undefined;
+    let advancedAttrs: Record<string, unknown> | null = null;
     const attrsTrim = currentEditor.attrsJson.trim();
 
     if (attrsTrim) {
       try {
-        attrs = JSON.parse(attrsTrim);
+        advancedAttrs = JSON.parse(attrsTrim);
       } catch {
-        alert("Attributes must be valid JSON");
+        alert("Advanced attributes must be valid JSON");
         return null;
       }
     }
@@ -100,13 +103,32 @@ export function useTaskSurfaceController({
     const pr = currentEditor.priority.trim();
     const ev = currentEditor.effortValue.trim();
     const md = currentEditor.minimumDurationValue.trim();
+    const est = currentEditor.estimatedMinutes.trim();
+    const rem = currentEditor.remainingMinutes.trim();
+    const spent = currentEditor.timeSpentMinutes.trim();
+
+    const estimatedMinutes = est ? Number(est) : null;
+    const remainingMinutes = rem ? Number(rem) : null;
+    const timeSpentMinutes = spent ? Number(spent) : null;
+    if (
+      [estimatedMinutes, remainingMinutes, timeSpentMinutes]
+        .filter((value) => value !== null)
+        .some((value) => !Number.isFinite(value) || (value as number) < 0)
+    ) {
+      alert("Estimated, remaining, and spent minutes must be non-negative numbers.");
+      return null;
+    }
+    if (estimatedMinutes !== null && remainingMinutes !== null && remainingMinutes > estimatedMinutes) {
+      alert("Remaining minutes cannot exceed estimated minutes.");
+      return null;
+    }
 
     return {
       title: newTitle,
       description: newDesc || undefined,
       entityType: currentEditor.parentTaskId ? "action" : currentEditor.entityType,
       state: currentEditor.state,
-      context: currentEditor.context.trim() ? currentEditor.context.trim() : null,
+      context: serializeContextTokens(currentEditor.contextTokens),
       waitingFor:
         currentEditor.state === "waiting"
           ? currentEditor.waitingFor.trim()
@@ -116,15 +138,22 @@ export function useTaskSurfaceController({
       dueDate: due ? due : null,
       priority: pr ? (Number(pr) as any) : null,
       effort: ev ? { unit: currentEditor.effortUnit, value: Number(ev) } : null,
+      estimatedMinutes,
+      remainingMinutes,
+      timeSpentMinutes,
       minimumDuration: md ? { unit: currentEditor.minimumDurationUnit, value: Number(md) } : null,
-      attrs: attrsTrim ? attrs : null,
+      attrs: buildTaskAttributes({
+        captureSource: currentEditor.captureSource,
+        advanced: advancedAttrs,
+        existing: currentTask.attrs,
+      }),
     };
   }, []);
 
   const saveEditorForNode = useCallback(
     async (node: Task) => {
       if (!editor) return;
-      const patch = buildEditorPatch(editor);
+      const patch = buildEditorPatch(editor, node);
       if (!patch) return;
       if (node.parentTaskId) await patchSubtreeNode(node, patch);
       else await patchTask(node, patch);

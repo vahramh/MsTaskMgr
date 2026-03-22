@@ -269,6 +269,30 @@ export async function updateTask(
       expr.push("#effort = :effort");
     }
   }
+  if ((patch as any).estimatedMinutes !== undefined) {
+    names["#estimatedMinutes"] = "estimatedMinutes";
+    if ((patch as any).estimatedMinutes === null) remove.push("#estimatedMinutes");
+    else {
+      values[":estimatedMinutes"] = (patch as any).estimatedMinutes;
+      expr.push("#estimatedMinutes = :estimatedMinutes");
+    }
+  }
+  if ((patch as any).remainingMinutes !== undefined) {
+    names["#remainingMinutes"] = "remainingMinutes";
+    if ((patch as any).remainingMinutes === null) remove.push("#remainingMinutes");
+    else {
+      values[":remainingMinutes"] = (patch as any).remainingMinutes;
+      expr.push("#remainingMinutes = :remainingMinutes");
+    }
+  }
+  if ((patch as any).timeSpentMinutes !== undefined) {
+    names["#timeSpentMinutes"] = "timeSpentMinutes";
+    if ((patch as any).timeSpentMinutes === null) remove.push("#timeSpentMinutes");
+    else {
+      values[":timeSpentMinutes"] = (patch as any).timeSpentMinutes;
+      expr.push("#timeSpentMinutes = :timeSpentMinutes");
+    }
+  }
   if ((patch as any).minimumDuration !== undefined) {
     names["#minimumDuration"] = "minimumDuration";
     if ((patch as any).minimumDuration === null) remove.push("#minimumDuration");
@@ -515,6 +539,30 @@ export async function updateSubtask(
     else {
       values[":effort"] = (patch as any).effort;
       expr.push("#effort = :effort");
+    }
+  }
+  if ((patch as any).estimatedMinutes !== undefined) {
+    names["#estimatedMinutes"] = "estimatedMinutes";
+    if ((patch as any).estimatedMinutes === null) remove.push("#estimatedMinutes");
+    else {
+      values[":estimatedMinutes"] = (patch as any).estimatedMinutes;
+      expr.push("#estimatedMinutes = :estimatedMinutes");
+    }
+  }
+  if ((patch as any).remainingMinutes !== undefined) {
+    names["#remainingMinutes"] = "remainingMinutes";
+    if ((patch as any).remainingMinutes === null) remove.push("#remainingMinutes");
+    else {
+      values[":remainingMinutes"] = (patch as any).remainingMinutes;
+      expr.push("#remainingMinutes = :remainingMinutes");
+    }
+  }
+  if ((patch as any).timeSpentMinutes !== undefined) {
+    names["#timeSpentMinutes"] = "timeSpentMinutes";
+    if ((patch as any).timeSpentMinutes === null) remove.push("#timeSpentMinutes");
+    else {
+      values[":timeSpentMinutes"] = (patch as any).timeSpentMinutes;
+      expr.push("#timeSpentMinutes = :timeSpentMinutes");
     }
   }
   if ((patch as any).minimumDuration !== undefined) {

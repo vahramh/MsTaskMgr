@@ -12,7 +12,7 @@ import type { HttpHandlerContext } from "../lib/handler";
 import { getSubtask, updateSubtask } from "../tasks/repo";
 import { log, toErrorInfo } from "../lib/log";
 import { parseJsonBody } from "../lib/request";
-import { normalizeNullable, validateAttrs, validateDueDate, validateEffort, validateMinimumDuration, validatePriority } from "../tasks/validate";
+import { normalizeNullable, validateAttrs, validateDueDate, validateEffort, validateMinimumDuration, validateMinutesField, validatePriority } from "../tasks/validate";
 import {
   canTransition,
   deriveV2Defaults,
@@ -170,6 +170,10 @@ export const handler = withHttp(async (
 
     const vr = validateMergedTask(merged);
     if (!vr.ok) return badRequest(vr.message, undefined, requestId);
+
+    if (merged.estimatedMinutes !== undefined && merged.remainingMinutes !== undefined && merged.remainingMinutes > merged.estimatedMinutes) {
+      return badRequest("remainingMinutes cannot exceed estimatedMinutes", undefined, requestId);
+    }
 
     // Always derive legacy status from state
     patch.status = merged.status;

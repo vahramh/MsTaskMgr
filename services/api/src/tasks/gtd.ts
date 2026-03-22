@@ -67,6 +67,9 @@ export function mergeTaskPatch(current: Task, patch: UpdateTaskRequest): Task {
     dueDate: (patch as any).dueDate === undefined ? current.dueDate : ((patch as any).dueDate ?? undefined),
     priority: (patch as any).priority === undefined ? current.priority : ((patch as any).priority ?? undefined),
     effort: (patch as any).effort === undefined ? current.effort : ((patch as any).effort ?? undefined),
+    estimatedMinutes: (patch as any).estimatedMinutes === undefined ? current.estimatedMinutes : ((patch as any).estimatedMinutes ?? undefined),
+    remainingMinutes: (patch as any).remainingMinutes === undefined ? current.remainingMinutes : ((patch as any).remainingMinutes ?? undefined),
+    timeSpentMinutes: (patch as any).timeSpentMinutes === undefined ? current.timeSpentMinutes : ((patch as any).timeSpentMinutes ?? undefined),
     minimumDuration: (patch as any).minimumDuration === undefined ? current.minimumDuration : ((patch as any).minimumDuration ?? undefined),
     attrs: (patch as any).attrs === undefined ? current.attrs : ((patch as any).attrs ?? undefined),
 
@@ -121,8 +124,26 @@ export function validateMergedTask(task: Task): { ok: true } | { ok: false; mess
   if (task.context !== undefined) {
     const c = (task.context ?? "").trim();
     if (task.context && !c) return { ok: false, message: "context cannot be whitespace" };
-    if (c.length > 40) return { ok: false, message: "context too long (max 40 chars)" };
+    if (c.length > 120) return { ok: false, message: "context too long (max 120 chars)" };
+  }
+
+  if (task.estimatedMinutes !== undefined && task.estimatedMinutes < 0) {
+    return { ok: false, message: "estimatedMinutes must be >= 0" };
+  }
+  if (task.remainingMinutes !== undefined && task.remainingMinutes < 0) {
+    return { ok: false, message: "remainingMinutes must be >= 0" };
+  }
+  if (task.timeSpentMinutes !== undefined && task.timeSpentMinutes < 0) {
+    return { ok: false, message: "timeSpentMinutes must be >= 0" };
+  }
+  if (
+    task.estimatedMinutes !== undefined &&
+    task.remainingMinutes !== undefined &&
+    task.remainingMinutes > task.estimatedMinutes
+  ) {
+    return { ok: false, message: "remainingMinutes cannot exceed estimatedMinutes" };
   }
 
   return { ok: true };
 }
+

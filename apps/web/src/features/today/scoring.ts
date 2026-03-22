@@ -30,6 +30,55 @@ export function minimumDurationToMinutes(minimumDuration?: DurationEstimate): nu
   return Math.round(minimumDuration.value);
 }
 
+export function estimatedMinutesForTask(task: {
+  estimatedMinutes?: number;
+  remainingMinutes?: number;
+  timeSpentMinutes?: number;
+  effort?: EffortEstimate;
+}): number | null {
+  if (typeof task.estimatedMinutes === "number" && task.estimatedMinutes >= 0) return task.estimatedMinutes;
+  if (
+    typeof task.remainingMinutes === "number" &&
+    task.remainingMinutes >= 0 &&
+    typeof task.timeSpentMinutes === "number" &&
+    task.timeSpentMinutes >= 0
+  ) {
+    return task.remainingMinutes + task.timeSpentMinutes;
+  }
+  return effortToMinutes(task.effort);
+}
+
+export function remainingMinutesForTask(task: {
+  remainingMinutes?: number;
+  estimatedMinutes?: number;
+  timeSpentMinutes?: number;
+  effort?: EffortEstimate;
+}): number | null {
+  if (typeof task.remainingMinutes === "number" && task.remainingMinutes >= 0) return task.remainingMinutes;
+  const estimated = estimatedMinutesForTask(task);
+  if (estimated === null) return null;
+  if (typeof task.timeSpentMinutes === "number" && task.timeSpentMinutes >= 0) {
+    return Math.max(0, estimated - task.timeSpentMinutes);
+  }
+  return estimated;
+}
+
+export function timeSpentMinutesForTask(task: {
+  timeSpentMinutes?: number;
+  estimatedMinutes?: number;
+  remainingMinutes?: number;
+  effort?: EffortEstimate;
+}): number | null {
+  if (typeof task.timeSpentMinutes === "number" && task.timeSpentMinutes >= 0) return task.timeSpentMinutes;
+  const estimated = estimatedMinutesForTask(task);
+  if (estimated === null) return null;
+  if (typeof task.remainingMinutes === "number" && task.remainingMinutes >= 0) {
+    return Math.max(0, estimated - task.remainingMinutes);
+  }
+  return 0;
+}
+
+
 function startOfDay(d: Date): Date {
   return new Date(d.getFullYear(), d.getMonth(), d.getDate());
 }
@@ -79,7 +128,7 @@ export function executionModeLabel(mode: TodayExecutionMode): string {
 export function prioritySignal(task: TodayTask, now: Date): string | null {
   if (isOverdue(task, now)) return "🔴";
   if (isDueSoon(task, now)) return "🟡";
-  const minutes = minimumDurationToMinutes(task.minimumDuration) ?? effortToMinutes(task.effort);
+  const minutes = minimumDurationToMinutes(task.minimumDuration) ?? remainingMinutesForTask(task);
   if (minutes !== null && minutes <= 20) return "🟢";
   return null;
 }

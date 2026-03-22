@@ -1,6 +1,7 @@
 import React from "react";
-import type { EntityType, WorkflowState } from "@tm/shared";
+import type { EntityType, ExecutionContextOption, WorkflowState } from "@tm/shared";
 import { useSpeechToText } from "../../../hooks/useSpeechToText";
+import { TaskContextSelector } from "./TaskContextSelector";
 
 type SpeechController = ReturnType<typeof useSpeechToText>;
 
@@ -13,16 +14,22 @@ export function TaskCreatePanel({
   priority,
   effortValue,
   effortUnit,
+  estimatedMinutes,
+  remainingMinutes,
+  timeSpentMinutes,
   minimumDurationValue,
   minimumDurationUnit,
   attrsJson,
+  captureSource,
+  advancedOpen,
   createEntityType,
   createState,
-  createContext,
+  createContextTokens,
   createWaitingFor,
   titleError,
   descriptionError,
   attrsError,
+  progressError,
   gtdCreateError,
   canCreate,
   descTrimLength,
@@ -36,12 +43,17 @@ export function TaskCreatePanel({
   onPriorityChange,
   onEffortValueChange,
   onEffortUnitChange,
+  onEstimatedMinutesChange,
+  onRemainingMinutesChange,
+  onTimeSpentMinutesChange,
   onMinimumDurationValueChange,
   onMinimumDurationUnitChange,
   onAttrsJsonChange,
+  onCaptureSourceChange,
+  onAdvancedOpenChange,
   onCreateEntityTypeChange,
   onCreateStateChange,
-  onCreateContextChange,
+  onToggleContextToken,
   onCreateWaitingForChange,
   speechErrorLabel,
 }: {
@@ -53,16 +65,22 @@ export function TaskCreatePanel({
   priority: string;
   effortValue: string;
   effortUnit: "hours" | "days";
+  estimatedMinutes: string;
+  remainingMinutes: string;
+  timeSpentMinutes: string;
   minimumDurationValue: string;
   minimumDurationUnit: "minutes" | "hours";
   attrsJson: string;
+  captureSource: string;
+  advancedOpen: boolean;
   createEntityType: EntityType;
   createState: WorkflowState;
-  createContext: string;
+  createContextTokens: ExecutionContextOption[];
   createWaitingFor: string;
   titleError?: string | null;
   descriptionError?: string | null;
   attrsError?: string | null;
+  progressError?: string | null;
   gtdCreateError?: string | null;
   canCreate: boolean;
   descTrimLength?: number;
@@ -76,12 +94,17 @@ export function TaskCreatePanel({
   onPriorityChange: (value: string) => void;
   onEffortValueChange: (value: string) => void;
   onEffortUnitChange: (value: "hours" | "days") => void;
+  onEstimatedMinutesChange: (value: string) => void;
+  onRemainingMinutesChange: (value: string) => void;
+  onTimeSpentMinutesChange: (value: string) => void;
   onMinimumDurationValueChange: (value: string) => void;
   onMinimumDurationUnitChange: (value: "minutes" | "hours") => void;
   onAttrsJsonChange: (value: string) => void;
+  onCaptureSourceChange: (value: string) => void;
+  onAdvancedOpenChange: (value: boolean) => void;
   onCreateEntityTypeChange: (value: EntityType) => void;
   onCreateStateChange: (value: WorkflowState) => void;
-  onCreateContextChange: (value: string) => void;
+  onToggleContextToken: (value: ExecutionContextOption) => void;
   onCreateWaitingForChange: (value: string) => void;
   speechErrorLabel: (error: string | null) => string;
 }) {
@@ -162,12 +185,9 @@ export function TaskCreatePanel({
           </label>
         </div>
 
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 10 }}>
-          <label>
-            <div className="help" style={{ marginBottom: 4 }}>Context</div>
-            <input className="input" value={createContext} onChange={(event) => onCreateContextChange(event.target.value)} placeholder="@home, @calls…" />
-          </label>
+        <TaskContextSelector selected={createContextTokens} onToggle={onToggleContextToken} />
 
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 10 }}>
           <label>
             <div className="help" style={{ marginBottom: 4 }}>Waiting for</div>
             <input className="input" value={createWaitingFor} onChange={(event) => onCreateWaitingForChange(event.target.value)} placeholder="Required when Waiting" />
@@ -180,21 +200,36 @@ export function TaskCreatePanel({
             </label>
             <label style={{ width: 110 }}>
               <div className="help" style={{ marginBottom: 4 }}>Unit</div>
-              <select className="input" value={effortUnit} onChange={(event) => onEffortUnitChange(event.target.value as "hours" | "days")}>
+              <select className="input" value={effortUnit} onChange={(event) => onEffortUnitChange(event.target.value as "hours" | "days") }>
                 <option value="hours">hours</option>
                 <option value="days">days</option>
               </select>
             </label>
           </div>
 
+          <label>
+            <div className="help" style={{ marginBottom: 4 }}>Estimated (min)</div>
+            <input className="input" inputMode="numeric" value={estimatedMinutes} onChange={(event) => onEstimatedMinutesChange(event.target.value)} placeholder="e.g. 240" />
+          </label>
+
+          <label>
+            <div className="help" style={{ marginBottom: 4 }}>Remaining (min)</div>
+            <input className="input" inputMode="numeric" value={remainingMinutes} onChange={(event) => onRemainingMinutesChange(event.target.value)} placeholder="defaults to estimated" />
+          </label>
+
+          <label>
+            <div className="help" style={{ marginBottom: 4 }}>Spent (min)</div>
+            <input className="input" inputMode="numeric" value={timeSpentMinutes} onChange={(event) => onTimeSpentMinutesChange(event.target.value)} placeholder="optional" />
+          </label>
+
           <div className="row" style={{ gap: 8 }}>
             <label style={{ flex: 1 }}>
-              <div className="help" style={{ marginBottom: 4 }}>Minimum block</div>
+              <div className="help" style={{ marginBottom: 4 }}>Minimum session</div>
               <input className="input" inputMode="decimal" value={minimumDurationValue} onChange={(event) => onMinimumDurationValueChange(event.target.value)} placeholder="e.g. 30" />
             </label>
             <label style={{ width: 110 }}>
               <div className="help" style={{ marginBottom: 4 }}>Unit</div>
-              <select className="input" value={minimumDurationUnit} onChange={(event) => onMinimumDurationUnitChange(event.target.value as "minutes" | "hours")}>
+              <select className="input" value={minimumDurationUnit} onChange={(event) => onMinimumDurationUnitChange(event.target.value as "minutes" | "hours") }>
                 <option value="minutes">minutes</option>
                 <option value="hours">hours</option>
               </select>
@@ -202,12 +237,29 @@ export function TaskCreatePanel({
           </div>
         </div>
 
+        {progressError ? <div className="help" style={{ color: "#991b1b" }}>{progressError}</div> : null}
+
         <div>
-          <div className="help" style={{ marginBottom: 4 }}>Attributes JSON</div>
-          <textarea className="input" rows={5} value={attrsJson} onChange={(event) => onAttrsJsonChange(event.target.value)} />
-          {attrsError ? <div className="help" style={{ color: "#991b1b", marginTop: 4 }}>{attrsError}</div> : null}
-          {gtdCreateError ? <div className="help" style={{ color: "#991b1b", marginTop: 4 }}>{gtdCreateError}</div> : null}
+          <button type="button" className="btn btn-secondary btn-compact" onClick={() => onAdvancedOpenChange(!advancedOpen)}>
+            {advancedOpen ? "Hide advanced" : "Show advanced"}
+          </button>
         </div>
+
+        {advancedOpen ? (
+          <div style={{ display: "grid", gap: 10 }}>
+            <label>
+              <div className="help" style={{ marginBottom: 4 }}>Capture source</div>
+              <input className="input" value={captureSource} onChange={(event) => onCaptureSourceChange(event.target.value)} placeholder="e.g. voice, email, meeting" />
+            </label>
+            <div>
+              <div className="help" style={{ marginBottom: 4 }}>Advanced attributes JSON</div>
+              <textarea className="input" rows={5} value={attrsJson} onChange={(event) => onAttrsJsonChange(event.target.value)} />
+              {attrsError ? <div className="help" style={{ color: "#991b1b", marginTop: 4 }}>{attrsError}</div> : null}
+            </div>
+          </div>
+        ) : null}
+
+        {gtdCreateError ? <div className="help" style={{ color: "#991b1b", marginTop: 4 }}>{gtdCreateError}</div> : null}
 
         <div className="row" style={{ gap: 8, justifyContent: "flex-end" }}>
           <button type="button" className="btn btn-secondary" onClick={onCancel}>Cancel</button>

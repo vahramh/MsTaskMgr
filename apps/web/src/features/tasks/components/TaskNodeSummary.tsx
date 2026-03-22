@@ -1,6 +1,7 @@
 import React from "react";
 import type { EntityType, Task, WorkflowState } from "@tm/shared";
 import type { HygieneSignalViewModel } from "./taskNodeTypes";
+import { formatContextSummary } from "../contextOptions";
 
 export function TaskNodeSummary({
   task,
@@ -34,6 +35,7 @@ export function TaskNodeSummary({
   const due = fmtDue(task.dueDate);
   const dueInfo = dueTone(task.dueDate);
   const project = (task as Task & { project?: { title: string } }).project;
+  const context = formatContextSummary(task.context);
 
   return (
     <div>
@@ -49,11 +51,13 @@ export function TaskNodeSummary({
       {task.description ? <div style={{ marginTop: 6, whiteSpace: "pre-wrap" }}>{task.description}</div> : null}
 
       <div className="help" style={{ marginTop: 8 }}>
-        {task.context ? `Context: ${task.context}` : "No context"}
+        {context ? `Context: ${context}` : "No context"}
         {task.waitingFor ? ` · Waiting for: ${task.waitingFor}` : ""}
         {due ? ` · Due: ${due}` : ""}
-        {task.effort ? ` · Effort: ${task.effort.value} ${task.effort.unit}` : ""}
-        {task.minimumDuration ? ` · Minimum block: ${task.minimumDuration.value} ${task.minimumDuration.unit}` : ""}
+        {typeof task.remainingMinutes === "number" ? ` · Remaining: ${task.remainingMinutes}m` : ""}
+        {typeof task.timeSpentMinutes === "number" ? ` · Spent: ${task.timeSpentMinutes}m` : ""}
+        {typeof task.estimatedMinutes === "number" ? ` · Estimate: ${task.estimatedMinutes}m` : ""}
+        {task.minimumDuration ? ` · Minimum session: ${task.minimumDuration.value} ${task.minimumDuration.unit}` : ""}
         {showUpdatedAt && formatTime ? ` · Updated: ${formatTime(task.updatedAt)}` : ""}
       </div>
 

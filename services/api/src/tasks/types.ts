@@ -37,6 +37,9 @@ export function toTask(item: any): Task {
     dueDate: item.dueDate,
     priority: item.priority as TaskPriority | undefined,
     effort: item.effort as EffortEstimate | undefined,
+    estimatedMinutes: item.estimatedMinutes,
+    remainingMinutes: item.remainingMinutes,
+    timeSpentMinutes: item.timeSpentMinutes,
     minimumDuration: item.minimumDuration as DurationEstimate | undefined,
     attrs: item.attrs as TaskAttributes | undefined,
 
