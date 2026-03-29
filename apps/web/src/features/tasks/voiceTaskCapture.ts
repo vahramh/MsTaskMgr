@@ -281,7 +281,7 @@ export function parseVoiceTaskCapture(raw: string, now = new Date()): ParsedVoic
   if (capturedContexts.length) {
     result.context = Array.from(new Set(capturedContexts)).join(", ");
   }
-    
+
   text = normaliseWhitespace(text.replace(/^[,.;:!?-]+/, "").replace(/[,.;:!?-]+$/, ""));
   result.cleanTitle = text || raw.trim();
 

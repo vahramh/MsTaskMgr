@@ -1,0 +1,9 @@
+Changed files for Today attention / fallback recommendation phase
+
+packages/shared/src/index.ts
+services/api/src/today/overview.ts
+services/api/src/today/attention.ts
+apps/web/src/features/today/BestNextActionCard.tsx
+apps/web/src/features/today/AttentionPanel.tsx
+apps/web/src/features/today/TodayPage.tsx
+apps/web/src/features/help/HelpPage.tsx

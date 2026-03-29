@@ -9,6 +9,7 @@ import { getToday } from "./api";
 import { completeTask, updateSharedRoot, updateSharedSubtask, updateSubtask, updateTask } from "../tasks/api";
 import { executionModeLabel, hasAnyGuidedActions, hasAnyProjectHealthIssues } from "./scoring";
 import BestNextActionCard from "./BestNextActionCard";
+import AttentionPanel from "./AttentionPanel";
 import RecommendedTasksSection from "./RecommendedTasksSection";
 import GuidedActionsPanel from "./GuidedActionsPanel";
 import ProjectHeatStrip from "./ProjectHeatStrip";
@@ -183,6 +184,28 @@ export default function TodayPage() {
 
   const modeData = data?.recommendationModes?.[mode] ?? null;
 
+  const todayMetrics = data?.executionMetrics ?? null;
+
+  const handleFallbackOpen = (fallback: NonNullable<TodayOverviewResponse["fallbackRecommendation"]>) => {
+    if (fallback.task) {
+      openTask(fallback.task);
+      return;
+    }
+    switch (fallback.targetView) {
+      case "inbox":
+        goToInbox();
+        return;
+      case "waiting":
+        goToWaiting();
+        return;
+      case "projects":
+        goToProjects();
+        return;
+      case "tasks":
+      default:
+        goToTasks();
+    }
+  };
 
   const showEmpty =
     !loading &&
@@ -207,7 +230,7 @@ export default function TodayPage() {
         </div>
 
         <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 10, flex: "0 1 auto" }}>
-          {data?.executionState ? <ExecutionStateBadge state={data.executionState} /> : null}
+          {todayMetrics ? <ExecutionStateBadge metrics={todayMetrics} /> : null}
           <label className="row" style={{ gap: 8, fontWeight: 600 }}>
             <input type="checkbox" checked={includeShared} onChange={(e) => setIncludeShared(e.target.checked)} />
             Include shared tasks
@@ -241,12 +264,16 @@ export default function TodayPage() {
         <>
           <BestNextActionCard
             item={modeData.bestNextAction}
+            fallback={data.fallbackRecommendation}
             mode={mode}
             modeDescription={modeData.description}
             now={now}
             onOpenTask={openTask}
             onSeeAlternatives={() => window.scrollTo({ top: 320, behavior: "smooth" })}
+            onOpenFallback={handleFallbackOpen}
           />
+
+          <AttentionPanel items={data.attentionItems} onOpenTask={openTask} onOpenWaiting={goToWaiting} />
 
           <RecommendedTasksSection
             mode={mode}

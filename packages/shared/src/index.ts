@@ -40,10 +40,10 @@ export type DurationEstimate = {
   value: number; // positive finite
 };
 
-export type TaskAttrValue = string | number | boolean | string[];
-
-export type TaskAttributes = Record<string, TaskAttrValue>;
-
+/**
+ * Controlled execution contexts used by the UI for structured filtering and capture.
+ * Tasks continue to store context as a serialised string for backward compatibility.
+ */
 export type ExecutionContextOption =
   | "computer"
   | "phone"
@@ -58,21 +58,9 @@ export type ExecutionContextOption =
   | "agenda"
   | "quick-win";
 
-export type ExecutionStateLevel = "calm" | "balanced" | "building" | "stressed" | "critical";
+export type TaskAttrValue = string | number | boolean | string[];
 
-export type ExecutionStateSummary = {
-  level: ExecutionStateLevel;
-  summary: string;
-  metrics: {
-    actionableCount: number;
-    overdueCount: number;
-    dueSoonCount: number;
-    blockedCount: number;
-    staleCount: number;
-    readyCount: number;
-    remainingMinutes: number;
-  };
-};
+export type TaskAttributes = Record<string, TaskAttrValue>;
 
 export type Task = {
   taskId: string;
@@ -97,11 +85,20 @@ export type Task = {
   /** Workflow state. Required for v2 items; derived from legacy fields during migration. */
   state?: WorkflowState;
 
-  /** Optional controlled multi-context string, stored as comma-separated tokens for compatibility. */
+  /** Optional context string (e.g. "@home" or a serialised list of controlled contexts). */
   context?: string;
 
   /** Required when state === "waiting". */
   waitingFor?: string;
+
+  /** Original estimate in minutes for progress-aware execution guidance. */
+  estimatedMinutes?: number;
+
+  /** Remaining estimated effort in minutes. */
+  remainingMinutes?: number;
+
+  /** Time already spent in minutes. */
+  timeSpentMinutes?: number;
 
   // ----------------------------------------------------------------------
 
@@ -111,15 +108,6 @@ export type Task = {
   priority?: TaskPriority;
 
   effort?: EffortEstimate;
-
-  /** Total estimate in minutes for progress-aware tasks. */
-  estimatedMinutes?: number;
-
-  /** Remaining effort in minutes. */
-  remainingMinutes?: number;
-
-  /** Time already spent on the task, in minutes. */
-  timeSpentMinutes?: number;
 
   /** Smallest uninterrupted block worth starting this task. */
   minimumDuration?: DurationEstimate;
@@ -138,9 +126,6 @@ export type CreateTaskRequest = {
   dueDate?: string;
   priority?: TaskPriority;
   effort?: EffortEstimate;
-  estimatedMinutes?: number;
-  remainingMinutes?: number;
-  timeSpentMinutes?: number;
   minimumDuration?: DurationEstimate;
   attrs?: TaskAttributes;
 
@@ -149,6 +134,11 @@ export type CreateTaskRequest = {
   state?: WorkflowState;
   context?: string;
   waitingFor?: string;
+
+  // Progress-aware duration model
+  estimatedMinutes?: number;
+  remainingMinutes?: number;
+  timeSpentMinutes?: number;
 };
 
 export type CreateTaskResponse = { task: Task };
@@ -175,15 +165,6 @@ export type UpdateTaskRequest = {
   effort?: EffortEstimate | null;
 
   /** Set to null to clear. */
-  estimatedMinutes?: number | null;
-
-  /** Set to null to clear. */
-  remainingMinutes?: number | null;
-
-  /** Set to null to clear. */
-  timeSpentMinutes?: number | null;
-
-  /** Set to null to clear. */
   minimumDuration?: DurationEstimate | null;
 
   /** Set to null to clear. */
@@ -198,6 +179,15 @@ export type UpdateTaskRequest = {
 
   /** Set to null to clear. */
   waitingFor?: string | null;
+
+  /** Set to null to clear. */
+  estimatedMinutes?: number | null;
+
+  /** Set to null to clear. */
+  remainingMinutes?: number | null;
+
+  /** Set to null to clear. */
+  timeSpentMinutes?: number | null;
 
   /** Optional optimistic concurrency guard. */
   expectedRev?: number;
@@ -414,6 +404,50 @@ export type TodayGuidedActions = {
   prepareNextActions?: TodayGuidedAction;
 };
 
+export type TodayAttentionKind = "overdueWaiting" | "staleWaiting";
+
+export type TodayAttentionItem = {
+  task: TodayTask;
+  kind: TodayAttentionKind;
+  title: string;
+  explanation: string;
+  suggestedActionLabel: string;
+};
+
+export type TodayFallbackRecommendation = {
+  kind: "attentionTask" | "guidedAction";
+  title: string;
+  description: string;
+  targetView: "inbox" | "waiting" | "projects" | "tasks";
+  ctaLabel: string;
+  task?: TodayTask;
+};
+
+export type TodayExecutionMetrics = {
+  readyTasks: number;
+  overdueTasks: number;
+  dueSoonTasks: number;
+  blockedTasks: number;
+  staleTasks: number;
+  totalEffortMinutes: number;
+};
+
+export type ExecutionStateLevel = "calm" | "balanced" | "building" | "stressed" | "critical";
+
+export type ExecutionStateSummary = {
+  level: ExecutionStateLevel;
+  summary: string;
+  metrics: {
+    actionableCount: number;
+    overdueCount: number;
+    dueSoonCount: number;
+    blockedCount: number;
+    staleCount: number;
+    readyCount: number;
+    remainingMinutes: number;
+  };
+};
+
 export type ProjectMomentumTier = "strong" | "warm" | "cold" | "stalled";
 export type ProjectClarityTier =
   | "clear"
@@ -453,12 +487,14 @@ export type TodayOverviewResponse = {
   generatedAt: string;
   includeShared: boolean;
   defaultMode: TodayExecutionMode;
+  executionMetrics: TodayExecutionMetrics;
   bestNextAction: TodayRecommendation | null;
+  fallbackRecommendation: TodayFallbackRecommendation | null;
+  attentionItems: TodayAttentionItem[];
   recommended: TodayRecommendation[];
   recommendationModes: Record<TodayExecutionMode, TodayModeRecommendations>;
   guidedActions: TodayGuidedActions;
   projectHealth: TodayProjectHealthSummary;
-  executionState: ExecutionStateSummary;
 };
 
 // ----------------------------------------------------------------------
