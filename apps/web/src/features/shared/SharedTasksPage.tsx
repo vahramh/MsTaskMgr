@@ -1,3 +1,4 @@
+import { priorityLabel } from "@tm/shared";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import type { Task, SharedTaskPointer, WorkflowState, EntityType } from "@tm/shared";
@@ -947,7 +948,7 @@ const toggleCompleteNode = useCallback(
                               <div className="help" style={{ marginTop: 8 }}>
                                 {stateLabel(deriveState(c))} · {deriveEntityType(c)}
                                 {c.dueDate ? ` · due ${fmtDue(c.dueDate)} (${dueTone(c.dueDate).label ?? ""})` : ""}
-                                {c.priority ? ` · p${c.priority}` : ""}
+                                {c.priority ? ` · ${priorityLabel(c.priority as any)}` : ""}
                                 {c.effort ? ` · effort ${c.effort.value} ${c.effort.unit}` : ""}
                                 {c.taskId.startsWith("temp-") ? " · syncing…" : null}
                               </div>
@@ -1373,7 +1374,7 @@ const toggleCompleteNode = useCallback(
                     <div className="help" style={{ marginTop: 8 }}>
                       {stateLabel(deriveState(selectedRoot))} · {deriveEntityType(selectedRoot)}
                       {selectedRoot.dueDate ? ` · due ${fmtDue(selectedRoot.dueDate)} (${dueTone(selectedRoot.dueDate).label ?? ""})` : ""}
-                      {selectedRoot.priority ? ` · p${selectedRoot.priority}` : ""}
+                      {selectedRoot.priority ? ` · ${priorityLabel(selectedRoot.priority as any)}` : ""}
                       {selectedRoot.effort ? ` · effort ${selectedRoot.effort.value} ${selectedRoot.effort.unit}` : ""}
                       · created {formatTime(selectedRoot.createdAt)} · updated {formatTime(selectedRoot.updatedAt)}
                     </div>

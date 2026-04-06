@@ -1,3 +1,4 @@
+import { priorityLabel } from "@tm/shared";
 import type { TodayExecutionMode, TodayModeRecommendations, TodayTask } from "@tm/shared";
 import { getHygieneSignals } from "../tasks/hygiene";
 import {
@@ -100,7 +101,7 @@ function TaskCard({
           <div className="help" style={{ marginTop: 4 }}>
             {item.project ? `Project: ${item.project.title} · ` : ""}
             {task.state ? `${task.state}` : "action"}
-            {typeof task.priority === "number" ? ` · P${task.priority}` : ""}
+            {typeof task.priority === "number" ? ` · ${priorityLabel(task.priority)}` : ""}
             {task.context ? ` · ${task.context}` : ""}
             {effortMinutes !== null ? ` · effort ${effortMinutes}m` : ""}
             {minimumBlockMinutes !== null ? ` · block ${minimumBlockMinutes}m` : ""}

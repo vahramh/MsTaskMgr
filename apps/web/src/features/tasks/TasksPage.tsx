@@ -298,6 +298,66 @@ export default function TasksPage() {
     return computeFocusedProjectDiagnostics(focusedProject, subtree?.items ?? [], new Date());
   }, [focusedProject, focusId, subtrees]);
 
+
+  const taskIndex = useMemo(() => {
+    const map = new Map<string, Task>();
+    for (const task of items) map.set(task.taskId, task);
+    for (const subtree of Object.values(subtrees)) {
+      for (const task of subtree.items) map.set(task.taskId, task);
+    }
+    return map;
+  }, [items, subtrees]);
+
+  const getBlockerOptions = useCallback((task: Task) => {
+    if (!task.parentTaskId) return [] as Array<{ taskId: string; title: string }>;
+
+    let current: Task | undefined = task;
+    let rootProjectId: string | undefined;
+    while (current?.parentTaskId) {
+      const parent = taskIndex.get(current.parentTaskId);
+      if (!parent) break;
+      if (deriveEntityType(parent) === "project" && !parent.parentTaskId) {
+        rootProjectId = parent.taskId;
+        break;
+      }
+      current = parent;
+    }
+    if (!rootProjectId) return [] as Array<{ taskId: string; title: string }>;
+
+    const descendants = new Set<string>();
+    const collectDescendants = (parentId: string) => {
+      const subtree = subtrees[parentId];
+      for (const child of subtree?.items ?? []) {
+        if (!descendants.has(child.taskId)) {
+          descendants.add(child.taskId);
+          collectDescendants(child.taskId);
+        }
+      }
+    };
+    collectDescendants(task.taskId);
+
+    const projectItems: Task[] = [];
+    const seen = new Set<string>();
+    const walkProject = (parentId: string) => {
+      for (const child of subtrees[parentId]?.items ?? []) {
+        if (seen.has(child.taskId)) continue;
+        seen.add(child.taskId);
+        projectItems.push(child);
+        walkProject(child.taskId);
+      }
+    };
+    walkProject(rootProjectId);
+
+    return projectItems
+      .filter((candidate) =>
+        candidate.taskId !== task.taskId &&
+        !descendants.has(candidate.taskId) &&
+        deriveEntityType(candidate) === "action" &&
+        !["completed", "reference", "someday"].includes(deriveState(candidate))
+      )
+      .map((candidate) => ({ taskId: candidate.taskId, title: candidate.title }))
+      .sort((a, b) => a.title.localeCompare(b.title));
+  }, [taskIndex, deriveEntityType, deriveState, subtrees]);
   const taskPresentation = useMemo<TaskPresentationHelpers>(() => ({
     deriveState,
     deriveEntityType,
@@ -391,6 +451,7 @@ export default function TasksPage() {
       subtaskSpeechParentId={subtaskSpeechParentId}
       toggleSubtaskSpeech={toggleSubtaskSpeech}
       speechErrorLabel={speechErrorLabel}
+      getBlockerOptions={getBlockerOptions}
     />
   ), [
     getSubtree,
@@ -409,6 +470,7 @@ export default function TasksPage() {
     subtaskSpeech,
     subtaskSpeechParentId,
     toggleSubtaskSpeech,
+    getBlockerOptions,
   ]);
 
   const viewCounts = useMemo(() => ({
@@ -520,6 +582,10 @@ export default function TasksPage() {
         createState={createController.state.createState}
         createContextTokens={createController.state.createContextTokens}
         createWaitingFor={createController.state.createWaitingFor}
+        createWaitingForTaskId={createController.state.createWaitingForTaskId}
+        createWaitingForTaskTitle={createController.state.createWaitingForTaskTitle}
+        createResumeStateAfterWait={createController.state.createResumeStateAfterWait}
+        blockerOptions={[]}
         titleError={createController.derived.titleError}
         descriptionError={createController.derived.descriptionError}
         attrsError={createController.derived.attrsError}
@@ -549,6 +615,9 @@ export default function TasksPage() {
         onCreateStateChange={createController.actions.setCreateState}
         onToggleContextToken={createController.actions.toggleContextToken}
         onCreateWaitingForChange={createController.actions.setCreateWaitingFor}
+        onCreateWaitingForTaskIdChange={createController.actions.setCreateWaitingForTaskId}
+        onCreateWaitingForTaskTitleChange={createController.actions.setCreateWaitingForTaskTitle}
+        onCreateResumeStateAfterWaitChange={createController.actions.setCreateResumeStateAfterWait}
         speechErrorLabel={speechErrorLabel}
       />
 
@@ -578,6 +647,7 @@ export default function TasksPage() {
                 helpers={taskPresentation}
                 hygieneSignals={getHygieneSignals(focusedProject, new Date())}
                 diagnostics={focusedProjectDiagnostics}
+                getBlockerOptions={getBlockerOptions}
               />
             ) : null}
           >
@@ -656,6 +726,7 @@ export default function TasksPage() {
               formatTime,
               getHygieneSignals,
             }}
+            getBlockerOptions={getBlockerOptions}
           />
         )}
       </div>

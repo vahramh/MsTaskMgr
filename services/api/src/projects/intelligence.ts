@@ -1,3 +1,4 @@
+import { priorityRank } from "../lib/priority";
 import type {
   ProjectBlockageTier,
   ProjectClarityTier,
@@ -5,7 +6,7 @@ import type {
   ProjectReadinessTier,
   TodayProjectHealthProject,
   TodayTask,
-} from "@tm/shared";
+} from "../../../../packages/shared/src";
 import { buildChildrenMap, collectDescendants, taskRefKey } from "../today/hierarchy";
 import { daysFromToday, isWaitingFollowUp } from "../today/scoring";
 
@@ -124,7 +125,7 @@ function leadActionScore(task: TodayTask, now: Date): number {
     else if (diff === 0) score += 25;
     else if (diff <= 3) score += 18;
   }
-  if (task.priority) score += task.priority * 5;
+  if (task.priority) score += priorityRank(task.priority) * 5;
   if (task.context?.trim()) score += 5;
   if (task.effort) score += 4;
   if (task.minimumDuration) score += 4;
@@ -246,7 +247,7 @@ function assessTaskExecutionReadiness(
   const directActionableChildren = directOpenChildren.filter(isActionable);
   const directBlockingChildren = directOpenChildren.filter((child) => child.state === "waiting" || child.state === "inbox");
   const ancestors = collectAncestors(task, taskMap);
-  const blockedByAncestorState = ancestors.some((ancestor) => isBlockingState(ancestor) || ancestor.state === "inbox");
+  const blockedByAncestorState = ancestors.some(  (ancestor) => ancestor.entityType !== "project" && (isBlockingState(ancestor) || ancestor.state === "inbox"));
   const metadataCount = metadataCompleteness(task);
   const missingReadinessMetadata = 3 - metadataCount;
 

@@ -75,6 +75,9 @@ export function mergeTaskPatch(current: Task, patch: UpdateTaskRequest): Task {
 
     context: (patch as any).context === undefined ? current.context : ((patch as any).context ?? undefined),
     waitingFor: (patch as any).waitingFor === undefined ? current.waitingFor : ((patch as any).waitingFor ?? undefined),
+    waitingForTaskId: (patch as any).waitingForTaskId === undefined ? current.waitingForTaskId : ((patch as any).waitingForTaskId ?? undefined),
+    waitingForTaskTitle: (patch as any).waitingForTaskTitle === undefined ? current.waitingForTaskTitle : ((patch as any).waitingForTaskTitle ?? undefined),
+    resumeStateAfterWait: (patch as any).resumeStateAfterWait === undefined ? current.resumeStateAfterWait : ((patch as any).resumeStateAfterWait ?? undefined),
 
     entityType: patch.entityType !== undefined ? patch.entityType : current.entityType,
     state: patch.state !== undefined ? patch.state : current.state,
@@ -94,11 +97,27 @@ export function validateMergedTask(task: Task): { ok: true } | { ok: false; mess
   // Scheduled requires dueDate.
   if (task.state === "scheduled" && !task.dueDate) return { ok: false, message: "Scheduled items must have dueDate" };
 
-  // Waiting requires waitingFor.
+  const wf = (task.waitingFor ?? "").trim();
+  const blockerId = (task.waitingForTaskId ?? "").trim();
+  const blockerTitle = (task.waitingForTaskTitle ?? "").trim();
+
+  if (wf.length > 200) return { ok: false, message: "waitingFor too long (max 200 chars)" };
+  if (blockerTitle.length > 200) return { ok: false, message: "waitingForTaskTitle too long (max 200 chars)" };
+
   if (task.state === "waiting") {
-    const wf = (task.waitingFor ?? "").trim();
-    if (!wf) return { ok: false, message: "Waiting items must include waitingFor" };
-    if (wf.length > 200) return { ok: false, message: "waitingFor too long (max 200 chars)" };
+    if (!wf && !blockerId) {
+      return { ok: false, message: "Waiting items must include a waiting note or blocker task" };
+    }
+    if (blockerId && !task.resumeStateAfterWait) {
+      task.resumeStateAfterWait = "next";
+    }
+  } else {
+    if (blockerId) return { ok: false, message: "Structured blocker requires waiting state" };
+    if (task.resumeStateAfterWait) return { ok: false, message: "resumeStateAfterWait requires waiting state" };
+  }
+
+  if (task.resumeStateAfterWait && task.resumeStateAfterWait !== "next" && task.resumeStateAfterWait !== "inbox") {
+    return { ok: false, message: "resumeStateAfterWait must be 'next' or 'inbox'" };
   }
 
   // Only actions can be next.

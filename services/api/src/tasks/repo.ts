@@ -340,6 +340,30 @@ export async function updateTask(
       expr.push("#waitingFor = :waitingFor");
     }
   }
+  if ((patch as any).waitingForTaskId !== undefined) {
+    names["#waitingForTaskId"] = "waitingForTaskId";
+    if ((patch as any).waitingForTaskId === null) remove.push("#waitingForTaskId");
+    else {
+      values[":waitingForTaskId"] = (patch as any).waitingForTaskId;
+      expr.push("#waitingForTaskId = :waitingForTaskId");
+    }
+  }
+  if ((patch as any).waitingForTaskTitle !== undefined) {
+    names["#waitingForTaskTitle"] = "waitingForTaskTitle";
+    if ((patch as any).waitingForTaskTitle === null) remove.push("#waitingForTaskTitle");
+    else {
+      values[":waitingForTaskTitle"] = (patch as any).waitingForTaskTitle;
+      expr.push("#waitingForTaskTitle = :waitingForTaskTitle");
+    }
+  }
+  if ((patch as any).resumeStateAfterWait !== undefined) {
+    names["#resumeStateAfterWait"] = "resumeStateAfterWait";
+    if ((patch as any).resumeStateAfterWait === null) remove.push("#resumeStateAfterWait");
+    else {
+      values[":resumeStateAfterWait"] = (patch as any).resumeStateAfterWait;
+      expr.push("#resumeStateAfterWait = :resumeStateAfterWait");
+    }
+  }
 
   const desiredStatus = statusOverride ?? patch.status;
   if (desiredStatus !== undefined) {
@@ -610,6 +634,30 @@ export async function updateSubtask(
     else {
       values[":waitingFor"] = (patch as any).waitingFor;
       expr.push("#waitingFor = :waitingFor");
+    }
+  }
+  if ((patch as any).waitingForTaskId !== undefined) {
+    names["#waitingForTaskId"] = "waitingForTaskId";
+    if ((patch as any).waitingForTaskId === null) remove.push("#waitingForTaskId");
+    else {
+      values[":waitingForTaskId"] = (patch as any).waitingForTaskId;
+      expr.push("#waitingForTaskId = :waitingForTaskId");
+    }
+  }
+  if ((patch as any).waitingForTaskTitle !== undefined) {
+    names["#waitingForTaskTitle"] = "waitingForTaskTitle";
+    if ((patch as any).waitingForTaskTitle === null) remove.push("#waitingForTaskTitle");
+    else {
+      values[":waitingForTaskTitle"] = (patch as any).waitingForTaskTitle;
+      expr.push("#waitingForTaskTitle = :waitingForTaskTitle");
+    }
+  }
+  if ((patch as any).resumeStateAfterWait !== undefined) {
+    names["#resumeStateAfterWait"] = "resumeStateAfterWait";
+    if ((patch as any).resumeStateAfterWait === null) remove.push("#resumeStateAfterWait");
+    else {
+      values[":resumeStateAfterWait"] = (patch as any).resumeStateAfterWait;
+      expr.push("#resumeStateAfterWait = :resumeStateAfterWait");
     }
   }
 

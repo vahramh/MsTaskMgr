@@ -128,7 +128,7 @@ export type ParsedVoiceCapture = {
   cleanTitle: string;
   dueDate?: string;
   dueTime?: string;
-  priority?: 1 | 2 | 3 | 4;
+  priority?: 1 | 2 | 3 | 4 | 5;
   state?: "waiting" | "scheduled" | "next";
   waitingFor?: string;
   context?: string;
@@ -138,7 +138,7 @@ export function parseVoiceTaskCapture(raw: string, now = new Date()): ParsedVoic
   let text = normaliseWhitespace(raw);
   const result: ParsedVoiceCapture = { cleanTitle: text };
 
-  const priorityPatterns: Array<[RegExp, 1 | 2 | 3 | 4]> = [
+  const priorityPatterns: Array<[RegExp, 1 | 2 | 3 | 4 | 5]> = [
     [/\bpriority\s+1\b/gi, 1],
     [/\bpriority\s+one\b/gi, 1],
     [/\bp1\b/gi, 1],
@@ -156,6 +156,10 @@ export function parseVoiceTaskCapture(raw: string, now = new Date()): ParsedVoic
     [/\bpriority\s+four\b/gi, 4],
     [/\bp4\b/gi, 4],
     [/\blow priority\b/gi, 4],
+    [/\bpriority\s+5\b/gi, 5],
+    [/\bpriority\s+five\b/gi, 5],
+    [/\bp5\b/gi, 5],
+    [/\bvery low priority\b/gi, 5],
   ];
 
   for (const [pattern, value] of priorityPatterns) {

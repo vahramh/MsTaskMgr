@@ -1,8 +1,30 @@
-Changed files
-- packages/shared/src/index.ts
-- services/api/src/today/best-next-action.ts
-- services/api/src/today/overview.ts
-- apps/web/src/features/today/scoring.ts
-- apps/web/src/features/today/BestNextActionCard.tsx
-- apps/web/src/features/today/RecommendedTasksSection.tsx
-- apps/web/src/features/today/TodayPage.tsx
+packages/shared/src/index.ts
+packages/shared/src/priority.ts
+services/api/src/tasks/types.ts
+services/api/src/tasks/gtd.ts
+services/api/src/tasks/repo.ts
+services/api/src/tasks/dependencies.ts
+services/api/src/handlers/tasks-create.ts
+services/api/src/handlers/tasks-update.ts
+services/api/src/handlers/tasks-complete.ts
+services/api/src/handlers/tasks-subtasks-create.ts
+services/api/src/handlers/tasks-subtasks-update.ts
+services/api/src/today/best-next-action.ts
+services/api/src/today/attention.ts
+services/api/src/insights/scoring.ts
+services/api/src/projects/intelligence.ts
+apps/web/src/features/tasks/components/taskNodeTypes.ts
+apps/web/src/features/tasks/useTasks.ts
+apps/web/src/features/tasks/hooks/useTaskCreateController.ts
+apps/web/src/features/tasks/hooks/useTaskSurfaceController.ts
+apps/web/src/features/tasks/components/TaskNodeEditor.tsx
+apps/web/src/features/tasks/components/TaskNodeSummary.tsx
+apps/web/src/features/tasks/components/TaskCreatePanel.tsx
+apps/web/src/features/tasks/TasksPage.tsx
+apps/web/src/features/tasks/voiceTaskCapture.ts
+apps/web/src/features/tasks/projectDiagnostics.ts
+apps/web/src/features/review/ReviewPage.tsx
+apps/web/src/features/today/BestNextActionCard.tsx
+apps/web/src/features/today/RecommendedTasksSection.tsx
+apps/web/src/features/today/AttentionPanel.tsx
+apps/web/src/features/shared/SharedTasksPage.tsx

@@ -20,7 +20,8 @@ export function RootExecutionList({
   renderExtraPanel,
   taskSurface,
   presentation,
-  onOpenAttachPanel
+  onOpenAttachPanel,
+  getBlockerOptions,
 }: {
   items: Task[];
   isExpanded: (taskId: string) => boolean;
@@ -36,6 +37,7 @@ export function RootExecutionList({
   taskSurface: TaskSurfaceActions;
   presentation: Required<Pick<TaskPresentationHelpers, "deriveState" | "deriveEntityType" | "dueTone" | "fmtDue" | "renderTaskStateBadge" | "formatTime" | "getHygieneSignals">>;
   onOpenAttachPanel?: (task: Task) => void;
+  getBlockerOptions: (task: Task) => Array<{ taskId: string; title: string }>;
 }) {
   return (
     <div style={{ display: "grid", gap: 10 }}>
@@ -59,6 +61,7 @@ export function RootExecutionList({
           taskSurface={taskSurface}
           presentation={presentation}
           onOpenAttachPanel={onOpenAttachPanel}
+          getBlockerOptions={getBlockerOptions}
         />
       ))}
     </div>
@@ -83,6 +86,7 @@ function RootExecutionItem({
   taskSurface,
   presentation,
   onOpenAttachPanel,
+  getBlockerOptions,
 }: {
   task: Task;
   pending: boolean;
@@ -101,6 +105,7 @@ function RootExecutionItem({
   taskSurface: TaskSurfaceActions;
   presentation: Required<Pick<TaskPresentationHelpers, "deriveState" | "deriveEntityType" | "dueTone" | "fmtDue" | "renderTaskStateBadge" | "formatTime">>;
   onOpenAttachPanel?: (task: Task) => void;
+  getBlockerOptions: (task: Task) => Array<{ taskId: string; title: string }>;
 }) {
   const isProject = presentation.deriveEntityType(task) === "project";
   const canAttachToProject = !task.parentTaskId && presentation.deriveEntityType(task) === "action" && presentation.deriveState(task) === "inbox";
@@ -123,6 +128,7 @@ function RootExecutionItem({
               onCancel={() => taskSurface.setEditor(null)}
               onSave={() => void taskSurface.saveEditorForNode(task)}
               requireWorkflowFields
+              blockerOptions={getBlockerOptions(task)}
             />
           ) : (
             <TaskNodeSummary

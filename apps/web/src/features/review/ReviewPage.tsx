@@ -1,3 +1,4 @@
+import { priorityLabel } from "@tm/shared";
 import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import type { ReviewMetricKey, ReviewResponse, TodayProjectHealthIssue, TodayTask } from "@tm/shared";
@@ -101,7 +102,7 @@ function TaskRow({ task, onOpenTask }: { task: TodayTask; onOpenTask: (task: Tod
           <div className="help" style={{ marginTop: 4 }}>
             {(task.entityType ?? "action")}
             {task.state ? ` · ${task.state}` : ""}
-            {typeof task.priority === "number" ? ` · P${task.priority}` : ""}
+            {typeof task.priority === "number" ? ` · ${priorityLabel(task.priority)}` : ""}
             {task.context ? ` · ${task.context}` : ""}
             {minutes !== null ? ` · ${minutes}m` : ""}
             {due ? ` · Due ${due}` : ""}

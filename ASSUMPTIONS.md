@@ -1,0 +1,5 @@
+- Structured waiting is enforced server-side as same-project only.
+- For root-level task creation, structured waiting is rejected in this phase because there is no project context at create time.
+- Automatic unblocking runs when a task transitions into completed through the updated root completion endpoint and generic update/subtask update paths.
+- The frontend includes the new structured fields, but the task picker UX is kept pragmatic for this phase and uses direct field entry rather than a dedicated search endpoint.
+- Help text was not exhaustively rewritten across the full long-form help document in this package.

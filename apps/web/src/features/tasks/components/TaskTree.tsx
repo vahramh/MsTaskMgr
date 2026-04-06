@@ -1,5 +1,5 @@
 import React from "react";
-import type { WorkflowState } from "@tm/shared";
+import type { Task, WorkflowState } from "@tm/shared";
 import { useSpeechToText } from "../../../hooks/useSpeechToText";
 import { TaskNodeEditor } from "./TaskNodeEditor";
 import { TaskNodeSummary } from "./TaskNodeSummary";
@@ -30,6 +30,7 @@ export type TaskTreeProps = {
   subtaskSpeechParentId: string | null;
   toggleSubtaskSpeech: (parentTaskId: string) => void;
   speechErrorLabel: (error: string | null) => string;
+  getBlockerOptions: (task: Task) => Array<{ taskId: string; title: string }>;
 };
 
 export function TaskTree(props: TaskTreeProps) {
@@ -135,6 +136,7 @@ function TaskTreeNode({ parentTaskId, depth, filterState = "all", ...props }: Ta
                             pending={pending}
                             onCancel={() => props.taskSurface.setEditor(null)}
                             onSave={() => void props.taskSurface.saveEditorForNode(task)}
+                            blockerOptions={props.getBlockerOptions(task)}
                           />
                         ) : (
                           <TaskNodeSummary

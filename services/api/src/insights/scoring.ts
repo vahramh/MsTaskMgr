@@ -1,3 +1,4 @@
+import { priorityRank } from "../lib/priority";
 import type {
   InsightRecommendedAction,
   InsightReasonCode,
@@ -244,7 +245,7 @@ export function buildInsightsResponse(tasks: TodayTask[], now: Date, includeShar
           reason: `This inbox item looks actionable and can be pulled into your execution list now.${task.context ? "" : " Add context when you do."}${projectText}`,
           reasonCode: "inbox_actionable",
           recommendedAction: "set_next",
-          urgency: task.priority ? task.priority * 4 : 6,
+          urgency: task.priority ? priorityRank(task.priority) * 4 : 6,
           staleness: stale,
           dueDateRisk: dueRisk,
           projectBlockage: Math.max(0, Math.round(projectImpact * 0.5)),
@@ -260,7 +261,7 @@ export function buildInsightsResponse(tasks: TodayTask[], now: Date, includeShar
           task,
           project,
           title: `Follow up on “${task.title}”`,
-          reason: `This waiting item has been untouched for ${ageDays(task, now)} days${task.waitingFor ? ` and is blocked on ${task.waitingFor}` : ""}.${projectText}`,
+          reason: `This waiting item has been untouched for ${ageDays(task, now)} days${task.waitingForTaskTitle ? ` and is blocked by ${task.waitingForTaskTitle}` : task.waitingFor ? ` and is waiting for ${task.waitingFor}` : ""}.${projectText}`,
           reasonCode: "waiting_stale",
           recommendedAction: "set_waiting_followup",
           dueDateRisk: dueRisk,

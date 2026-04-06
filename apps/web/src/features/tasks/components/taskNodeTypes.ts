@@ -22,6 +22,9 @@ export type TaskEditorValue = {
   state: WorkflowState;
   contextTokens: ExecutionContextOption[];
   waitingFor: string;
+  waitingForTaskId: string;
+  waitingForTaskTitle: string;
+  resumeStateAfterWait: "next" | "inbox";
 };
 
 export type TaskEditorModel = TaskEditorValue | null;

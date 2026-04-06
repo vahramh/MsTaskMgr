@@ -37,6 +37,7 @@ export function FocusedProjectSummary({
   helpers,
   hygieneSignals,
   diagnostics,
+  getBlockerOptions,
 }: {
   task: Task;
   pending: boolean;
@@ -48,6 +49,7 @@ export function FocusedProjectSummary({
   helpers: TaskPresentationHelpers;
   hygieneSignals: HygieneSignalViewModel[];
   diagnostics?: FocusedProjectDiagnostics | null;
+  getBlockerOptions: (task: Task) => Array<{ taskId: string; title: string }>;
 }) {
   if (isEditing) {
     return (
@@ -58,6 +60,7 @@ export function FocusedProjectSummary({
         onCancel={() => setEditor(null)}
         onSave={() => void saveEditorForNode(task)}
         requireWorkflowFields
+        blockerOptions={getBlockerOptions(task)}
       />
     );
   }

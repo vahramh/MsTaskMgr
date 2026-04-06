@@ -10,6 +10,7 @@ import { ok, badRequest, unauthorized, notFound, internalError, conflict } from 
 import { withHttp } from "../lib/handler";
 import type { HttpHandlerContext } from "../lib/handler";
 import { getSubtask, updateSubtask } from "../tasks/repo";
+import { releaseDependentsBlockedBy, validateStructuredDependencyForSubtask } from "../tasks/dependencies";
 import { log, toErrorInfo } from "../lib/log";
 import { parseJsonBody } from "../lib/request";
 import { normalizeNullable, validateAttrs, validateDueDate, validateEffort, validateMinimumDuration, validateMinutesField, validatePriority } from "../tasks/validate";
@@ -131,6 +132,24 @@ export const handler = withHttp(async (
     (patch as any).waitingFor = v as any;
   }
 
+  if ((body as any).waitingForTaskId !== undefined) {
+    const v = (body as any).waitingForTaskId;
+    if (v !== null && typeof v !== "string") return badRequest("waitingForTaskId must be a string or null", undefined, requestId);
+    (patch as any).waitingForTaskId = v as any;
+  }
+
+  if ((body as any).waitingForTaskTitle !== undefined) {
+    const v = (body as any).waitingForTaskTitle;
+    if (v !== null && typeof v !== "string") return badRequest("waitingForTaskTitle must be a string or null", undefined, requestId);
+    (patch as any).waitingForTaskTitle = v as any;
+  }
+
+  if ((body as any).resumeStateAfterWait !== undefined) {
+    const v = (body as any).resumeStateAfterWait;
+    if (v !== null && v !== "next" && v !== "inbox") return badRequest("resumeStateAfterWait must be 'next', 'inbox', or null", undefined, requestId);
+    (patch as any).resumeStateAfterWait = v as any;
+  }
+
   // Legacy status mapping:
   // - If state is provided, status is derived server-side.
   // - If only status is provided, map it to a state transition.
@@ -161,6 +180,23 @@ export const handler = withHttp(async (
     }
 
     const fromState = (current.state ?? v2.state);
+
+    if (typeof (patch as any).waitingForTaskId === "string" && (patch as any).waitingForTaskId.trim()) {
+      const dep = await validateStructuredDependencyForSubtask({
+        sub,
+        parentTaskId,
+        taskId: subtaskId,
+        waitingForTaskId: (patch as any).waitingForTaskId.trim(),
+      });
+      if (!dep.ok) return badRequest(dep.message, undefined, requestId);
+      (patch as any).waitingForTaskId = (patch as any).waitingForTaskId.trim();
+      (patch as any).waitingForTaskTitle = dep.waitingForTaskTitle ?? (patch as any).waitingForTaskTitle;
+      if ((patch as any).resumeStateAfterWait === undefined) (patch as any).resumeStateAfterWait = "next";
+    } else if ((patch as any).waitingForTaskId === null) {
+      if ((patch as any).waitingForTaskTitle === undefined) (patch as any).waitingForTaskTitle = null;
+      if ((patch as any).resumeStateAfterWait === undefined) (patch as any).resumeStateAfterWait = null;
+    }
+
     const merged = mergeTaskPatch({ ...current, ...v2 }, patch);
 
     if (!merged.state) return badRequest("Missing state", undefined, requestId);
@@ -180,6 +216,11 @@ export const handler = withHttp(async (
 
     const updated = await updateSubtask(sub, parentTaskId, subtaskId, patch, now, undefined, expectedRev);
     if (!updated) return notFound("Subtask not found", requestId);
+
+    if (fromState !== "completed" && updated.state === "completed") {
+      const rootProjectId = current.parentTaskId ?? parentTaskId;
+      await releaseDependentsBlockedBy({ sub, blockerTaskId: updated.taskId, rootProjectId });
+    }
 
     const resp: UpdateSubtaskResponse = { task: updated };
     return ok(resp, requestId);

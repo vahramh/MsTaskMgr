@@ -25,6 +25,9 @@ type PatchInput = {
   state?: WorkflowState;
   context?: string | null;
   waitingFor?: string | null;
+  waitingForTaskId?: string | null;
+  waitingForTaskTitle?: string | null;
+  resumeStateAfterWait?: "next" | "inbox" | null;
 };
 
 type Options = {
@@ -278,6 +281,9 @@ export function useSubtreeController({ tokens, clearAllErrors, refreshExecutionM
         state: partial.state ?? prev.state,
         context: partial.context === undefined ? prev.context : nullToUndefined(partial.context as any),
         waitingFor: partial.waitingFor === undefined ? prev.waitingFor : nullToUndefined(partial.waitingFor as any),
+        waitingForTaskId: partial.waitingForTaskId === undefined ? prev.waitingForTaskId : nullToUndefined(partial.waitingForTaskId as any),
+        waitingForTaskTitle: partial.waitingForTaskTitle === undefined ? prev.waitingForTaskTitle : nullToUndefined(partial.waitingForTaskTitle as any),
+        resumeStateAfterWait: partial.resumeStateAfterWait === undefined ? prev.resumeStateAfterWait : nullToUndefined(partial.resumeStateAfterWait as any),
         dueDate: partial.dueDate === undefined ? prev.dueDate : nullToUndefined(partial.dueDate),
         priority: partial.priority === undefined ? prev.priority : nullToUndefined(partial.priority),
         effort: partial.effort === undefined ? prev.effort : nullToUndefined(partial.effort),

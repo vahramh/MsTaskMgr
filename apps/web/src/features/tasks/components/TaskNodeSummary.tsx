@@ -52,7 +52,7 @@ export function TaskNodeSummary({
 
       <div className="help" style={{ marginTop: 8 }}>
         {context ? `Context: ${context}` : "No context"}
-        {task.waitingFor ? ` · Waiting for: ${task.waitingFor}` : ""}
+        {task.waitingForTaskTitle ? ` · Blocked by: ${task.waitingForTaskTitle}` : task.waitingFor ? ` · Waiting for: ${task.waitingFor}` : ""}
         {due ? ` · Due: ${due}` : ""}
         {typeof task.remainingMinutes === "number" ? ` · Remaining: ${task.remainingMinutes}m` : ""}
         {typeof task.timeSpentMinutes === "number" ? ` · Spent: ${task.timeSpentMinutes}m` : ""}

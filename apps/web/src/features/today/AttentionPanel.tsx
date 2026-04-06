@@ -1,3 +1,4 @@
+import { priorityLabel } from "@tm/shared";
 import type { TodayAttentionItem, TodayTask } from "@tm/shared";
 
 function kindLabel(kind: TodayAttentionItem["kind"]): string {
@@ -34,7 +35,7 @@ export default function AttentionPanel({
             <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
               <div style={{ fontWeight: 700 }}>{item.title}</div>
               <span className="pill">{kindLabel(item.kind)}</span>
-              {typeof item.task.priority === "number" ? <span className="pill">P{item.task.priority}</span> : null}
+              {typeof item.task.priority === "number" ? <span className="pill">{priorityLabel(item.task.priority)}</span> : null}
             </div>
             <div className="help" style={{ marginTop: 4 }}>{item.explanation}</div>
             <div className="row" style={{ gap: 8, flexWrap: "wrap", marginTop: 10 }}>

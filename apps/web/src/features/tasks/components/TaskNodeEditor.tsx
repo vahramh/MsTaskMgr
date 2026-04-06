@@ -1,6 +1,12 @@
+
 import React from "react";
 import type { TaskEditorModel } from "./taskNodeTypes";
 import { TaskContextSelector } from "./TaskContextSelector";
+
+export type TaskBlockerOption = {
+  taskId: string;
+  title: string;
+};
 
 function applyWorkLog(current: NonNullable<TaskEditorModel>, minutes: number) {
   const estimated = current.estimatedMinutes.trim() ? Number(current.estimatedMinutes) : undefined;
@@ -25,6 +31,7 @@ export function TaskNodeEditor({
   onCancel,
   onSave,
   requireWorkflowFields,
+  blockerOptions = [],
 }: {
   editor: TaskEditorModel;
   setEditor: React.Dispatch<React.SetStateAction<TaskEditorModel>>;
@@ -32,6 +39,7 @@ export function TaskNodeEditor({
   onCancel: () => void;
   onSave: () => void;
   requireWorkflowFields?: boolean;
+  blockerOptions?: TaskBlockerOption[];
 }) {
   if (!editor) return null;
 
@@ -41,6 +49,33 @@ export function TaskNodeEditor({
 
   const logWork = (minutes: number) => {
     setEditor((prev) => (prev ? applyWorkLog(prev, minutes) : prev));
+  };
+
+  const onStateChange = (state: any) => {
+    setEditor((prev) => {
+      if (!prev) return prev;
+      if (state !== "waiting") {
+        return {
+          ...prev,
+          state,
+          waitingFor: "",
+          waitingForTaskId: "",
+          waitingForTaskTitle: "",
+          resumeStateAfterWait: "next",
+        };
+      }
+      return { ...prev, state };
+    });
+  };
+
+  const onBlockerChange = (taskId: string) => {
+    const option = blockerOptions.find((item) => item.taskId === taskId);
+    setEditor((prev) => prev ? {
+      ...prev,
+      waitingForTaskId: taskId,
+      waitingForTaskTitle: option?.title ?? "",
+      resumeStateAfterWait: prev.resumeStateAfterWait ?? "next",
+    } : prev);
   };
 
   return (
@@ -61,7 +96,7 @@ export function TaskNodeEditor({
 
         <label>
           <div className="help" style={{ marginBottom: 4 }}>State</div>
-          <select className="input" value={editor.state} onChange={(e) => update("state", e.target.value as any)}>
+          <select className="input" value={editor.state} onChange={(e) => onStateChange(e.target.value as any)}>
             <option value="inbox">Inbox</option>
             <option value="next">Next</option>
             <option value="waiting">Waiting</option>
@@ -81,59 +116,101 @@ export function TaskNodeEditor({
           <div className="help" style={{ marginBottom: 4 }}>Priority</div>
           <select className="input" value={editor.priority} onChange={(e) => update("priority", e.target.value)}>
             <option value="">None</option>
-            <option value="1">1</option>
-            <option value="2">2</option>
-            <option value="3">3</option>
-            <option value="4">4</option>
-            <option value="5">5</option>
+            <option value="1">P1 · Critical</option>
+            <option value="2">P2 · High</option>
+            <option value="3">P3 · Normal</option>
+            <option value="4">P4 · Low</option>
+            <option value="5">P5 · Very low</option>
           </select>
         </label>
       </div>
 
       <TaskContextSelector
         selected={editor.contextTokens}
-        onToggle={(value) =>
-          update(
-            "contextTokens",
-            editor.contextTokens.includes(value)
-              ? editor.contextTokens.filter((item) => item !== value)
-              : [...editor.contextTokens, value]
+        onToggle={(token) =>
+          setEditor((prev) =>
+            prev
+              ? {
+                  ...prev,
+                  contextTokens: prev.contextTokens.includes(token)
+                    ? prev.contextTokens.filter((value) => value !== token)
+                    : [...prev.contextTokens, token],
+                }
+              : prev
           )
         }
       />
 
+      {editor.state === "waiting" ? (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 8 }}>
+          <label>
+            <div className="help" style={{ marginBottom: 4 }}>Blocked by task</div>
+            <select className="input" value={editor.waitingForTaskId} onChange={(e) => onBlockerChange(e.target.value)}>
+              <option value="">No structured blocker</option>
+              {blockerOptions.map((option) => (
+                <option key={option.taskId} value={option.taskId}>{option.title}</option>
+              ))}
+            </select>
+          </label>
+
+          <label style={{ gridColumn: "1 / -1" }}>
+            <div className="help" style={{ marginBottom: 4 }}>Waiting note</div>
+            <input
+              className="input"
+              value={editor.waitingFor}
+              onChange={(e) => update("waitingFor", e.target.value)}
+              placeholder="Optional human context, e.g. awaiting client reply"
+            />
+          </label>
+
+          <label>
+            <div className="help" style={{ marginBottom: 4 }}>When unblocked, move to</div>
+            <select className="input" value={editor.resumeStateAfterWait} onChange={(e) => update("resumeStateAfterWait", e.target.value as "next" | "inbox")}>
+              <option value="next">Next</option>
+              <option value="inbox">Inbox</option>
+            </select>
+          </label>
+
+          {editor.waitingForTaskId ? (
+            <div className="help" style={{ alignSelf: "end" }}>Blocker: {editor.waitingForTaskTitle}</div>
+          ) : blockerOptions.length === 0 ? (
+            <div className="help" style={{ alignSelf: "end" }}>Load the project tree to choose a same-project blocker.</div>
+          ) : null}
+        </div>
+      ) : null}
+
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 8 }}>
         <label>
-          <div className="help" style={{ marginBottom: 4 }}>Waiting for</div>
-          <input className="input" value={editor.waitingFor} onChange={(e) => update("waitingFor", e.target.value)} />
-        </label>
-        <label>
           <div className="help" style={{ marginBottom: 4 }}>Effort</div>
-          <div className="row" style={{ gap: 8 }}>
-            <input className="input" value={editor.effortValue} onChange={(e) => update("effortValue", e.target.value)} />
-            <select className="input" value={editor.effortUnit} onChange={(e) => update("effortUnit", e.target.value as any)} style={{ width: 120 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 8 }}>
+            <input className="input" inputMode="decimal" value={editor.effortValue} onChange={(e) => update("effortValue", e.target.value)} />
+            <select className="input" value={editor.effortUnit} onChange={(e) => update("effortUnit", e.target.value as any)}>
               <option value="hours">hours</option>
               <option value="days">days</option>
             </select>
           </div>
         </label>
+
         <label>
           <div className="help" style={{ marginBottom: 4 }}>Estimated (min)</div>
           <input className="input" inputMode="numeric" value={editor.estimatedMinutes} onChange={(e) => update("estimatedMinutes", e.target.value)} />
         </label>
+
         <label>
           <div className="help" style={{ marginBottom: 4 }}>Remaining (min)</div>
           <input className="input" inputMode="numeric" value={editor.remainingMinutes} onChange={(e) => update("remainingMinutes", e.target.value)} />
         </label>
+
         <label>
           <div className="help" style={{ marginBottom: 4 }}>Spent (min)</div>
           <input className="input" inputMode="numeric" value={editor.timeSpentMinutes} onChange={(e) => update("timeSpentMinutes", e.target.value)} />
         </label>
+
         <label>
           <div className="help" style={{ marginBottom: 4 }}>Minimum session</div>
-          <div className="row" style={{ gap: 8 }}>
-            <input className="input" value={editor.minimumDurationValue} onChange={(e) => update("minimumDurationValue", e.target.value)} />
-            <select className="input" value={editor.minimumDurationUnit} onChange={(e) => update("minimumDurationUnit", e.target.value as any)} style={{ width: 120 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 8 }}>
+            <input className="input" inputMode="decimal" value={editor.minimumDurationValue} onChange={(e) => update("minimumDurationValue", e.target.value)} />
+            <select className="input" value={editor.minimumDurationUnit} onChange={(e) => update("minimumDurationUnit", e.target.value as any)}>
               <option value="minutes">minutes</option>
               <option value="hours">hours</option>
             </select>
@@ -146,43 +223,25 @@ export function TaskNodeEditor({
         <button type="button" className="btn btn-secondary btn-compact" onClick={() => logWork(30)}>Worked 30m</button>
         <button type="button" className="btn btn-secondary btn-compact" onClick={() => logWork(60)}>Worked 1h</button>
         <button type="button" className="btn btn-secondary btn-compact" onClick={() => logWork(120)}>Worked 2h</button>
-        <button
-          type="button"
-          className="btn btn-secondary btn-compact"
-          onClick={() => {
-            const value = window.prompt("Minutes worked", "45");
-            if (!value) return;
-            const minutes = Number(value);
-            if (!Number.isFinite(minutes) || minutes <= 0) return;
-            logWork(Math.round(minutes));
-          }}
-        >
-          Custom
-        </button>
       </div>
 
-      <div>
-        <button type="button" className="btn btn-secondary btn-compact" onClick={() => update("advancedOpen", !editor.advancedOpen)}>
-          {editor.advancedOpen ? "Hide advanced" : "Show advanced"}
-        </button>
-      </div>
-
-      {editor.advancedOpen ? (
-        <div style={{ display: "grid", gap: 8 }}>
+      <details open={editor.advancedOpen} onToggle={(e) => update("advancedOpen", (e.currentTarget as HTMLDetailsElement).open)}>
+        <summary className="btn btn-secondary btn-compact" style={{ display: "inline-flex" }}>Advanced</summary>
+        <div style={{ display: "grid", gap: 8, marginTop: 8 }}>
           <label>
             <div className="help" style={{ marginBottom: 4 }}>Capture source</div>
-            <input className="input" value={editor.captureSource} onChange={(e) => update("captureSource", e.target.value)} placeholder="e.g. voice, email, meeting" />
+            <input className="input" value={editor.captureSource} onChange={(e) => update("captureSource", e.target.value)} />
           </label>
           <label>
-            <div className="help" style={{ marginBottom: 4 }}>Advanced attributes JSON</div>
-            <textarea className="input" rows={4} value={editor.attrsJson} onChange={(e) => update("attrsJson", e.target.value)} />
+            <div className="help" style={{ marginBottom: 4 }}>Attributes JSON</div>
+            <textarea className="input" rows={6} value={editor.attrsJson} onChange={(e) => update("attrsJson", e.target.value)} />
           </label>
         </div>
-      ) : null}
+      </details>
 
-      <div className="row" style={{ gap: 8, justifyContent: "flex-end" }}>
+      <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
         <button type="button" className="btn btn-secondary" onClick={onCancel} disabled={pending}>Cancel</button>
-        <button type="button" className="btn" onClick={onSave} disabled={pending || !editor.title.trim()}>
+        <button type="button" className="btn" onClick={onSave} disabled={pending}>
           {pending ? "Saving…" : "Save"}
         </button>
       </div>

@@ -7,6 +7,7 @@ import { getTask, listAllSubtasks, updateTask } from "../tasks/repo";
 import { log, toErrorInfo } from "../lib/log";
 import { parseJsonBody } from "../lib/request";
 import { deriveV2Defaults } from "../tasks/gtd";
+import { releaseTasksBlockedByTask } from "../tasks/dependencies";
 
 function isUuidV4(v: string): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(v);
@@ -77,6 +78,8 @@ export const handler = withHttp(
 
       const updated = await updateTask(sub, taskId, patch, now, "COMPLETED", expectedRev);
       if (!updated) return notFound("Task not found", requestId);
+
+      await releaseTasksBlockedByTask(sub, taskId, now);
 
       const resp: UpdateTaskResponse = { task: updated };
       return ok(resp, requestId);

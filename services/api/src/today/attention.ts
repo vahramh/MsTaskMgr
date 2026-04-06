@@ -1,10 +1,11 @@
+import { priorityRank } from "../lib/priority";
 import type {
   TodayAttentionItem,
   TodayExecutionMetrics,
   TodayFallbackRecommendation,
   TodayGuidedActions,
   TodayTask,
-} from "@tm/shared";
+} from "../../../../packages/shared/src";;
 import { effortToMinutes, isWaitingFollowUp, daysFromToday } from "./scoring";
 
 function ageDays(task: TodayTask, now: Date): number {
@@ -16,8 +17,8 @@ function compareAttention(a: TodayTask, b: TodayTask, now: Date): number {
   const aOverdue = a.dueDate ? daysFromToday(a.dueDate, now) : Number.POSITIVE_INFINITY;
   const bOverdue = b.dueDate ? daysFromToday(b.dueDate, now) : Number.POSITIVE_INFINITY;
   if (aOverdue !== bOverdue) return aOverdue - bOverdue;
-  const aPriority = typeof a.priority === "number" ? a.priority : 0;
-  const bPriority = typeof b.priority === "number" ? b.priority : 0;
+  const aPriority = priorityRank(a.priority);
+  const bPriority = priorityRank(b.priority);
   if (bPriority !== aPriority) return bPriority - aPriority;
   const aAge = ageDays(a, now);
   const bAge = ageDays(b, now);
@@ -46,9 +47,11 @@ export function buildTodayAttentionItems(tasks: TodayTask[], now: Date): TodayAt
       task,
       kind: "overdueWaiting",
       title: task.title,
-      explanation: task.waitingFor?.trim()
-        ? `This item is overdue and still waiting for ${task.waitingFor.trim()}. It should usually be followed up, rescheduled, or clarified.`
-        : "This item is overdue and still in Waiting. It should usually be followed up, rescheduled, or clarified.",
+      explanation: task.waitingForTaskTitle?.trim()
+        ? `This item is overdue and blocked by ${task.waitingForTaskTitle.trim()}. It should usually be followed up, rescheduled, or clarified.`
+        : task.waitingFor?.trim()
+          ? `This item is overdue and still waiting for ${task.waitingFor.trim()}. It should usually be followed up, rescheduled, or clarified.`
+          : "This item is overdue and still in Waiting. It should usually be followed up, rescheduled, or clarified.",
       suggestedActionLabel: "Follow up",
     }));
 
@@ -60,9 +63,11 @@ export function buildTodayAttentionItems(tasks: TodayTask[], now: Date): TodayAt
       task,
       kind: "staleWaiting",
       title: task.title,
-      explanation: task.waitingFor?.trim()
-        ? `This waiting item has gone stale while waiting for ${task.waitingFor.trim()}. It is unlikely to remain trustworthy without a follow-up.`
-        : "This waiting item has gone stale and is unlikely to remain trustworthy without a follow-up.",
+      explanation: task.waitingForTaskTitle?.trim()
+        ? `This waiting item has gone stale while blocked by ${task.waitingForTaskTitle.trim()}. It is unlikely to remain trustworthy without a follow-up.`
+        : task.waitingFor?.trim()
+          ? `This waiting item has gone stale while waiting for ${task.waitingFor.trim()}. It is unlikely to remain trustworthy without a follow-up.`
+          : "This waiting item has gone stale and is unlikely to remain trustworthy without a follow-up.",
       suggestedActionLabel: "Review waiting item",
     }));
 

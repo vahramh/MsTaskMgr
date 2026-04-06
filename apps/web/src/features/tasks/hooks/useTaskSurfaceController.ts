@@ -1,3 +1,4 @@
+
 import { useCallback, useState } from "react";
 import type { EntityType, Task, WorkflowState } from "@tm/shared";
 import type { TaskStatus } from "@tm/shared";
@@ -21,6 +22,9 @@ type EditorPatch = {
   state?: WorkflowState;
   context?: string | null;
   waitingFor?: string | null;
+  waitingForTaskId?: string | null;
+  waitingForTaskTitle?: string | null;
+  resumeStateAfterWait?: "next" | "inbox" | null;
 };
 
 type Options = {
@@ -49,7 +53,6 @@ export function useTaskSurfaceController({
   refreshExecutionModel,
   deriveState,
   deriveEntityType,
-  promptWaitingFor,
   promptDueDate,
   patchSubtreeNode,
   reopenSubtreeNode,
@@ -81,6 +84,9 @@ export function useTaskSurfaceController({
       state: deriveState(t),
       contextTokens: parseContextTokens(t.context),
       waitingFor: t.waitingFor ?? "",
+      waitingForTaskId: t.waitingForTaskId ?? "",
+      waitingForTaskTitle: t.waitingForTaskTitle ?? "",
+      resumeStateAfterWait: t.resumeStateAfterWait ?? "next",
     });
   }, [deriveEntityType, deriveState]);
 
@@ -106,6 +112,9 @@ export function useTaskSurfaceController({
     const est = currentEditor.estimatedMinutes.trim();
     const rem = currentEditor.remainingMinutes.trim();
     const spent = currentEditor.timeSpentMinutes.trim();
+    const waitingNote = currentEditor.waitingFor.trim();
+    const blockerId = currentEditor.waitingForTaskId.trim();
+    const blockerTitle = currentEditor.waitingForTaskTitle.trim();
 
     const estimatedMinutes = est ? Number(est) : null;
     const remainingMinutes = rem ? Number(rem) : null;
@@ -122,6 +131,10 @@ export function useTaskSurfaceController({
       alert("Remaining minutes cannot exceed estimated minutes.");
       return null;
     }
+    if (currentEditor.state === "waiting" && !waitingNote && !blockerId) {
+      alert("Waiting requires either a waiting note or a blocker task.");
+      return null;
+    }
 
     return {
       title: newTitle,
@@ -129,12 +142,10 @@ export function useTaskSurfaceController({
       entityType: currentEditor.parentTaskId ? "action" : currentEditor.entityType,
       state: currentEditor.state,
       context: serializeContextTokens(currentEditor.contextTokens),
-      waitingFor:
-        currentEditor.state === "waiting"
-          ? currentEditor.waitingFor.trim()
-            ? currentEditor.waitingFor.trim()
-            : null
-          : null,
+      waitingFor: currentEditor.state === "waiting" ? (waitingNote || null) : null,
+      waitingForTaskId: currentEditor.state === "waiting" ? (blockerId || null) : null,
+      waitingForTaskTitle: currentEditor.state === "waiting" ? (blockerTitle || null) : null,
+      resumeStateAfterWait: currentEditor.state === "waiting" && blockerId ? currentEditor.resumeStateAfterWait : null,
       dueDate: due ? due : null,
       priority: pr ? (Number(pr) as any) : null,
       effort: ev ? { unit: currentEditor.effortUnit, value: Number(ev) } : null,
@@ -194,27 +205,26 @@ export function useTaskSurfaceController({
       };
 
       if (target === "waiting") {
-        const wf = await promptWaitingFor(node.waitingFor);
-        if (!wf) return;
-        await applyPatch({ state: "waiting", waitingFor: wf });
+        startEdit({ ...node, state: "waiting" } as Task);
+        setEditor((prev) => prev ? { ...prev, state: "waiting" } : prev);
         return;
       }
 
       if (target === "scheduled") {
         const due = node.dueDate?.trim() ? node.dueDate.trim() : await promptDueDate("");
         if (!due) return;
-        await applyPatch({ state: "scheduled", dueDate: due });
+        await applyPatch({ state: "scheduled", dueDate: due, waitingFor: null, waitingForTaskId: null, waitingForTaskTitle: null, resumeStateAfterWait: null });
         return;
       }
 
       if (target === "inbox") {
-        await applyPatch({ state: "inbox", dueDate: null, waitingFor: null });
+        await applyPatch({ state: "inbox", dueDate: null, waitingFor: null, waitingForTaskId: null, waitingForTaskTitle: null, resumeStateAfterWait: null });
         return;
       }
 
-      await applyPatch({ state: target, waitingFor: null });
+      await applyPatch({ state: target, waitingFor: null, waitingForTaskId: null, waitingForTaskTitle: null, resumeStateAfterWait: null });
     },
-    [deriveState, deriveEntityType, patchSubtreeNode, patchTask, promptDueDate, promptWaitingFor, refreshExecutionModel]
+    [deriveState, deriveEntityType, patchSubtreeNode, patchTask, promptDueDate, refreshExecutionModel, startEdit]
   );
 
   const toggleCompleteNode = useCallback(

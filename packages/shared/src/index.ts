@@ -24,8 +24,26 @@ export type WorkflowState =
  */
 export type EntityType = "project" | "action";
 
-/** 1 (lowest) .. 5 (highest) */
+/** 1 (highest) .. 5 (lowest) */
 export type TaskPriority = 1 | 2 | 3 | 4 | 5;
+
+
+/** Priority helpers with canonical semantics: P1 strongest, P5 weakest. */
+export function priorityRank(priority: TaskPriority | undefined | null): number {
+  if (priority == null) return 0;
+  return 6 - priority;
+}
+
+export function priorityLabel(priority: TaskPriority | undefined | null): string {
+  switch (priority) {
+    case 1: return "P1 · Critical";
+    case 2: return "P2 · High";
+    case 3: return "P3 · Normal";
+    case 4: return "P4 · Low";
+    case 5: return "P5 · Very low";
+    default: return "No priority";
+  }
+}
 
 export type EffortUnit = "hours" | "days";
 export type DurationUnit = "minutes" | "hours";
@@ -88,8 +106,17 @@ export type Task = {
   /** Optional context string (e.g. "@home" or a serialised list of controlled contexts). */
   context?: string;
 
-  /** Required when state === "waiting". */
+  /** Optional free-text note when waiting. */
   waitingFor?: string;
+
+  /** Structured blocker task (same project only in current phase). */
+  waitingForTaskId?: string;
+
+  /** Snapshot of blocker title for display. System-managed. */
+  waitingForTaskTitle?: string;
+
+  /** State to move to automatically once blocker completes. */
+  resumeStateAfterWait?: "inbox" | "next";
 
   /** Original estimate in minutes for progress-aware execution guidance. */
   estimatedMinutes?: number;
@@ -134,6 +161,9 @@ export type CreateTaskRequest = {
   state?: WorkflowState;
   context?: string;
   waitingFor?: string;
+  waitingForTaskId?: string;
+  waitingForTaskTitle?: string;
+  resumeStateAfterWait?: "inbox" | "next";
 
   // Progress-aware duration model
   estimatedMinutes?: number;
@@ -179,6 +209,15 @@ export type UpdateTaskRequest = {
 
   /** Set to null to clear. */
   waitingFor?: string | null;
+
+  /** Set to null to clear. */
+  waitingForTaskId?: string | null;
+
+  /** Set to null to clear. */
+  waitingForTaskTitle?: string | null;
+
+  /** Set to null to clear. */
+  resumeStateAfterWait?: "inbox" | "next" | null;
 
   /** Set to null to clear. */
   estimatedMinutes?: number | null;

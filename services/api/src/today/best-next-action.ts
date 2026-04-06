@@ -1,3 +1,4 @@
+import { priorityRank } from "../lib/priority";
 import type {
   TodayExecutionMode,
   TodayModeRecommendations,
@@ -6,7 +7,7 @@ import type {
   TodayRecommendationFit,
   TodayRecommendationReadiness,
   TodayTask,
-} from "@tm/shared";
+} from "../../../../packages/shared/src";
 import type { TaskProjectContext } from "../projects/intelligence";
 import { taskRefKey } from "./hierarchy";
 import { daysFromToday, effortToMinutes, estimatedMinutesForTask, minimumDurationToMinutes, remainingMinutesForTask, timeSpentMinutesForTask } from "./scoring";
@@ -111,20 +112,13 @@ function metadataScore(task: TodayTask): Contribution[] {
 }
 
 function priorityScore(task: TodayTask): number {
-  switch (task.priority) {
-    case 5:
-      return 26;
-    case 4:
-      return 20;
-    case 3:
-      return 14;
-    case 2:
-      return 8;
-    case 1:
-      return 4;
-    default:
-      return 0;
-  }
+  const rank = priorityRank(task.priority);
+  if (rank >= 5) return 26;
+  if (rank === 4) return 20;
+  if (rank === 3) return 14;
+  if (rank === 2) return 8;
+  if (rank === 1) return 4;
+  return 0;
 }
 
 function executionReadinessScore(task: TodayTask, projectContext?: TaskProjectContext): number {
@@ -250,7 +244,7 @@ function activationFrictionScore(task: TodayTask, readiness: TodayRecommendation
 function leverageScore(task: TodayTask, projectContext?: TaskProjectContext): number {
   let score = 0;
   const startedMinutes = timeSpentMinutesForTask(task) ?? 0;
-  if (typeof task.priority === "number") score += task.priority * 2;
+  if (typeof task.priority === "number") score += priorityRank(task.priority) * 2;
   if (startedMinutes >= 30) score += 6;
   if (startedMinutes >= 90) score += 4;
   if (projectContext?.onlyActionableTask || projectContext?.onlyNextTask) score += 16;

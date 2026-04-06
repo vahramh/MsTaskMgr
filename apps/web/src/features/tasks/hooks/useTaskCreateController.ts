@@ -35,6 +35,9 @@ export function useTaskCreateController({ creating, onCreate, onAfterCreate }: U
   const [createState, setCreateState] = useState<WorkflowState>("inbox");
   const [createContextTokens, setCreateContextTokens] = useState<ExecutionContextOption[]>([]);
   const [createWaitingFor, setCreateWaitingFor] = useState("");
+  const [createWaitingForTaskId, setCreateWaitingForTaskId] = useState("");
+  const [createWaitingForTaskTitle, setCreateWaitingForTaskTitle] = useState("");
+  const [createResumeStateAfterWait, setCreateResumeStateAfterWait] = useState<"next" | "inbox">("next");
 
   const titleRef = useRef<HTMLInputElement | null>(null);
 
@@ -81,15 +84,16 @@ export function useTaskCreateController({ creating, onCreate, onAfterCreate }: U
 
   const gtdCreateError = useMemo(() => {
     const waitingFor = createWaitingFor.trim();
+    const waitingForTaskId = createWaitingForTaskId.trim();
     if (createEntityType === "project" && createState === "next") return "Projects cannot be in Next";
     if (createState === "next" && createEntityType !== "action") return "Only actions can be in Next";
-    if (createState === "waiting" && !waitingFor) return "Waiting requires 'Waiting for…'";
+    if (createState === "waiting" && !waitingFor && !waitingForTaskId) return "Waiting requires either a waiting note or a blocker task";
     if (createState === "scheduled" && !dueDate) return "Scheduled requires a due date";
     if (createState === "inbox" && dueDate) return "Inbox items cannot have a due date";
     if (waitingFor.length > 200) return "Waiting for is too long (max 200 characters)";
     if (captureSource.trim().length > 80) return "Capture source is too long (max 80 characters)";
     return null;
-  }, [captureSource, createEntityType, createState, createWaitingFor, dueDate]);
+  }, [captureSource, createEntityType, createState, createWaitingFor, createWaitingForTaskId, dueDate]);
 
   const canCreate = !titleError && !descriptionError && !attrsError && !progressError && !gtdCreateError && titleTrim.length > 0 && !creating;
 
@@ -112,6 +116,9 @@ export function useTaskCreateController({ creating, onCreate, onAfterCreate }: U
     setCreateState("inbox");
     setCreateContextTokens([]);
     setCreateWaitingFor("");
+    setCreateWaitingForTaskId("");
+    setCreateWaitingForTaskTitle("");
+    setCreateResumeStateAfterWait("next");
     setShowCreate(false);
   };
 
@@ -152,7 +159,10 @@ export function useTaskCreateController({ creating, onCreate, onAfterCreate }: U
       entityType: createEntityType,
       state: createState,
       context: serializeContextTokens(createContextTokens) ?? undefined,
-      waitingFor: createState === "waiting" ? createWaitingFor.trim() : undefined,
+      waitingFor: createState === "waiting" ? (createWaitingFor.trim() || undefined) : undefined,
+      waitingForTaskId: createState === "waiting" ? (createWaitingForTaskId.trim() || undefined) : undefined,
+      waitingForTaskTitle: createState === "waiting" && createWaitingForTaskId.trim() ? (createWaitingForTaskTitle.trim() || undefined) : undefined,
+      resumeStateAfterWait: createState === "waiting" && createWaitingForTaskId.trim() ? createResumeStateAfterWait : undefined,
       dueDate: createState === "inbox" ? undefined : dueDate || undefined,
       priority: priority ? (Number(priority) as CreateTaskRequest["priority"]) : undefined,
       effort: effortValue ? { unit: effortUnit, value: Number(effortValue) } : undefined,
@@ -191,6 +201,9 @@ export function useTaskCreateController({ creating, onCreate, onAfterCreate }: U
       createState,
       createContextTokens,
       createWaitingFor,
+      createWaitingForTaskId,
+      createWaitingForTaskTitle,
+      createResumeStateAfterWait,
     },
     derived: {
       titleTrim,
@@ -225,7 +238,12 @@ export function useTaskCreateController({ creating, onCreate, onAfterCreate }: U
       setCreateState: (next: WorkflowState) => {
         setCreateState(next);
         if (next === "inbox") setDueDate("");
-        if (next !== "waiting") setCreateWaitingFor("");
+        if (next !== "waiting") {
+          setCreateWaitingFor("");
+          setCreateWaitingForTaskId("");
+          setCreateWaitingForTaskTitle("");
+          setCreateResumeStateAfterWait("next");
+        }
       },
       toggleContextToken: (token: ExecutionContextOption) => {
         setCreateContextTokens((previous) =>
@@ -233,6 +251,9 @@ export function useTaskCreateController({ creating, onCreate, onAfterCreate }: U
         );
       },
       setCreateWaitingFor,
+      setCreateWaitingForTaskId,
+      setCreateWaitingForTaskTitle,
+      setCreateResumeStateAfterWait,
       submit,
       reset,
     },

@@ -1,9 +1,11 @@
 import React from "react";
-import type { EntityType, ExecutionContextOption, WorkflowState } from "@tm/shared";
+import { priorityLabel, type EntityType, type ExecutionContextOption, type WorkflowState } from "@tm/shared";
 import { useSpeechToText } from "../../../hooks/useSpeechToText";
 import { TaskContextSelector } from "./TaskContextSelector";
 
 type SpeechController = ReturnType<typeof useSpeechToText>;
+
+type BlockerOption = { taskId: string; title: string };
 
 export function TaskCreatePanel({
   visible,
@@ -26,6 +28,10 @@ export function TaskCreatePanel({
   createState,
   createContextTokens,
   createWaitingFor,
+  createWaitingForTaskId,
+  createWaitingForTaskTitle,
+  createResumeStateAfterWait,
+  blockerOptions = [],
   titleError,
   descriptionError,
   attrsError,
@@ -55,6 +61,9 @@ export function TaskCreatePanel({
   onCreateStateChange,
   onToggleContextToken,
   onCreateWaitingForChange,
+  onCreateWaitingForTaskIdChange,
+  onCreateWaitingForTaskTitleChange,
+  onCreateResumeStateAfterWaitChange,
   speechErrorLabel,
 }: {
   visible: boolean;
@@ -77,6 +86,10 @@ export function TaskCreatePanel({
   createState: WorkflowState;
   createContextTokens: ExecutionContextOption[];
   createWaitingFor: string;
+  createWaitingForTaskId: string;
+  createWaitingForTaskTitle: string;
+  createResumeStateAfterWait: "next" | "inbox";
+  blockerOptions?: BlockerOption[];
   titleError?: string | null;
   descriptionError?: string | null;
   attrsError?: string | null;
@@ -106,9 +119,18 @@ export function TaskCreatePanel({
   onCreateStateChange: (value: WorkflowState) => void;
   onToggleContextToken: (value: ExecutionContextOption) => void;
   onCreateWaitingForChange: (value: string) => void;
+  onCreateWaitingForTaskIdChange: (value: string) => void;
+  onCreateWaitingForTaskTitleChange: (value: string) => void;
+  onCreateResumeStateAfterWaitChange: (value: "next" | "inbox") => void;
   speechErrorLabel: (error: string | null) => string;
 }) {
   if (!visible) return null;
+
+  const handleBlockerChange = (taskId: string) => {
+    onCreateWaitingForTaskIdChange(taskId);
+    const option = blockerOptions.find((item) => item.taskId === taskId);
+    onCreateWaitingForTaskTitleChange(option?.title ?? "");
+  };
 
   return (
     <form className="card" style={{ marginTop: 12, padding: 14 }} onSubmit={onSubmit}>
@@ -176,23 +198,40 @@ export function TaskCreatePanel({
             <div className="help" style={{ marginBottom: 4 }}>Priority</div>
             <select className="input" value={priority} onChange={(event) => onPriorityChange(event.target.value)}>
               <option value="">None</option>
-              <option value="1">1</option>
-              <option value="2">2</option>
-              <option value="3">3</option>
-              <option value="4">4</option>
-              <option value="5">5</option>
+              {[1,2,3,4,5].map((value) => (
+                <option key={value} value={String(value)}>{priorityLabel(value as 1|2|3|4|5)}</option>
+              ))}
             </select>
           </label>
         </div>
 
         <TaskContextSelector selected={createContextTokens} onToggle={onToggleContextToken} />
 
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 10 }}>
-          <label>
-            <div className="help" style={{ marginBottom: 4 }}>Waiting for</div>
-            <input className="input" value={createWaitingFor} onChange={(event) => onCreateWaitingForChange(event.target.value)} placeholder="Required when Waiting" />
-          </label>
+        {createState === "waiting" ? (
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 10 }}>
+            <label>
+              <div className="help" style={{ marginBottom: 4 }}>Blocked by task</div>
+              <select className="input" value={createWaitingForTaskId} onChange={(event) => handleBlockerChange(event.target.value)}>
+                <option value="">No structured blocker</option>
+                {blockerOptions.map((option) => <option key={option.taskId} value={option.taskId}>{option.title}</option>)}
+              </select>
+            </label>
+            <label>
+              <div className="help" style={{ marginBottom: 4 }}>When unblocked, move to</div>
+              <select className="input" value={createResumeStateAfterWait} onChange={(event) => onCreateResumeStateAfterWaitChange(event.target.value as "next" | "inbox")}>
+                <option value="next">Next</option>
+                <option value="inbox">Inbox</option>
+              </select>
+            </label>
+            <label style={{ gridColumn: "1 / -1" }}>
+              <div className="help" style={{ marginBottom: 4 }}>Waiting note</div>
+              <input className="input" value={createWaitingFor} onChange={(event) => onCreateWaitingForChange(event.target.value)} placeholder="Optional human context, e.g. awaiting client reply" />
+            </label>
+            {createWaitingForTaskId && createWaitingForTaskTitle ? <div className="help">Blocker: {createWaitingForTaskTitle}</div> : null}
+          </div>
+        ) : null}
 
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 10 }}>
           <div className="row" style={{ gap: 8 }}>
             <label style={{ flex: 1 }}>
               <div className="help" style={{ marginBottom: 4 }}>Effort</div>
@@ -237,33 +276,31 @@ export function TaskCreatePanel({
           </div>
         </div>
 
-        {progressError ? <div className="help" style={{ color: "#991b1b" }}>{progressError}</div> : null}
-
-        <div>
-          <button type="button" className="btn btn-secondary btn-compact" onClick={() => onAdvancedOpenChange(!advancedOpen)}>
-            {advancedOpen ? "Hide advanced" : "Show advanced"}
-          </button>
-        </div>
-
-        {advancedOpen ? (
-          <div style={{ display: "grid", gap: 10 }}>
+        <details open={advancedOpen} onToggle={(event) => onAdvancedOpenChange((event.currentTarget as HTMLDetailsElement).open)}>
+          <summary className="btn btn-secondary btn-compact" style={{ display: "inline-flex" }}>Advanced</summary>
+          <div style={{ display: "grid", gap: 10, marginTop: 10 }}>
             <label>
               <div className="help" style={{ marginBottom: 4 }}>Capture source</div>
-              <input className="input" value={captureSource} onChange={(event) => onCaptureSourceChange(event.target.value)} placeholder="e.g. voice, email, meeting" />
+              <input className="input" value={captureSource} onChange={(event) => onCaptureSourceChange(event.target.value)} placeholder="Optional" />
             </label>
-            <div>
-              <div className="help" style={{ marginBottom: 4 }}>Advanced attributes JSON</div>
-              <textarea className="input" rows={5} value={attrsJson} onChange={(event) => onAttrsJsonChange(event.target.value)} />
-              {attrsError ? <div className="help" style={{ color: "#991b1b", marginTop: 4 }}>{attrsError}</div> : null}
-            </div>
+            <label>
+              <div className="help" style={{ marginBottom: 4 }}>Attributes JSON</div>
+              <textarea className="input" rows={5} value={attrsJson} onChange={(event) => onAttrsJsonChange(event.target.value)} placeholder="{}" />
+            </label>
           </div>
-        ) : null}
+        </details>
 
-        {gtdCreateError ? <div className="help" style={{ color: "#991b1b", marginTop: 4 }}>{gtdCreateError}</div> : null}
+        {attrsError ? <div className="help" style={{ color: "#991b1b" }}>{attrsError}</div> : null}
+        {progressError ? <div className="help" style={{ color: "#991b1b" }}>{progressError}</div> : null}
+        {gtdCreateError ? <div className="help" style={{ color: "#991b1b" }}>{gtdCreateError}</div> : null}
 
-        <div className="row" style={{ gap: 8, justifyContent: "flex-end" }}>
-          <button type="button" className="btn btn-secondary" onClick={onCancel}>Cancel</button>
-          <button type="submit" className="btn" disabled={!canCreate || creating}>{creating ? "Creating…" : "Create"}</button>
+        <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
+          <button type="submit" className="btn btn-primary" disabled={!canCreate || creating}>
+            {creating ? "Creating…" : "Create task"}
+          </button>
+          <button type="button" className="btn btn-secondary" onClick={onCancel}>
+            Cancel
+          </button>
         </div>
       </div>
     </form>

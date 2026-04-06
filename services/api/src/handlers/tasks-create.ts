@@ -78,6 +78,11 @@ export const handler = withHttp(async (event: APIGatewayProxyEventV2, ctx: HttpH
     return badRequest("waitingFor must be a string or null", undefined, requestId);
   }
 
+  const waitingForTaskId = (body as any).waitingForTaskId;
+  if (waitingForTaskId !== undefined && waitingForTaskId !== null) {
+    return badRequest("Structured blockers are currently supported only for tasks inside a project", undefined, requestId);
+  }
+
   const now = new Date().toISOString();
   const effortMinutes = effortR.value ? (effortR.value.unit === "hours" ? Math.round(effortR.value.value * 60) : Math.round(effortR.value.value * 8 * 60)) : undefined;
   const estimatedMinutes = estimatedMinutesR.value ?? effortMinutes;

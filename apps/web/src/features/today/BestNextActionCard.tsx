@@ -1,3 +1,4 @@
+import { priorityLabel } from "@tm/shared";
 import React from "react";
 import type { TodayExecutionMode, TodayFallbackRecommendation, TodayRecommendation, TodayTask } from "@tm/shared";
 import { effortToMinutes, executionModeLabel, minimumDurationToMinutes, prioritySignal } from "./scoring";
@@ -116,7 +117,7 @@ export default function BestNextActionCard({
       {item.explanation ? <div className="help" style={{ marginTop: 10 }}>{item.explanation}</div> : null}
       <div className="help" style={{ marginTop: 10 }}>
         {task.state ? `${task.state}` : "action"}
-        {typeof task.priority === "number" ? ` · P${task.priority}` : ""}
+        {typeof task.priority === "number" ? ` · ${priorityLabel(task.priority)}` : ""}
         {task.context ? ` · ${task.context}` : ""}
         {effortMinutes !== null ? ` · effort ${effortMinutes}m` : ""}
         {minimumBlockMinutes !== null ? ` · block ${minimumBlockMinutes}m` : ""}

@@ -1,3 +1,4 @@
+import { priorityRank } from "../../../../../packages/shared/src/priority";
 import type { ProjectBlockageTier, ProjectClarityTier, ProjectMomentumTier, ProjectReadinessTier, Task } from "@tm/shared";
 
 function ageDays(task: Task, now: Date): number {
@@ -77,8 +78,8 @@ export function computeFocusedProjectDiagnostics(project: Task, descendants: Tas
 
   const leadTask = [...nextActions, ...openActions]
     .sort((a, b) => {
-      const aScore = (a.state === "next" ? 100 : 0) + (a.priority ?? 0) * 5 + (a.context?.trim() ? 4 : 0) + (a.effort ? 3 : 0);
-      const bScore = (b.state === "next" ? 100 : 0) + (b.priority ?? 0) * 5 + (b.context?.trim() ? 4 : 0) + (b.effort ? 3 : 0);
+      const aScore = (a.state === "next" ? 100 : 0) + priorityRank(a.priority) * 5 + (a.context?.trim() ? 4 : 0) + (a.effort ? 3 : 0);
+      const bScore = (b.state === "next" ? 100 : 0) + priorityRank(b.priority) * 5 + (b.context?.trim() ? 4 : 0) + (b.effort ? 3 : 0);
       if (bScore !== aScore) return bScore - aScore;
       return a.title.localeCompare(b.title);
     })[0];

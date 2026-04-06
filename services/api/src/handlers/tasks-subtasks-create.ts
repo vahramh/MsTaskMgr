@@ -9,6 +9,7 @@ import { log, toErrorInfo } from "../lib/log";
 import { parseJsonBody } from "../lib/request";
 import { validateAttrs, validateDueDate, validateEffort, validateMinimumDuration, validateMinutesField, validatePriority } from "../tasks/validate";
 import { isEntityType, isWorkflowState, stateToStatus, validateMergedTask } from "../tasks/gtd";
+import { validateStructuredDependencyForCreate } from "../tasks/dependencies";
 
 function isUuidV4(v: string): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(v);
@@ -88,6 +89,32 @@ export const handler = withHttp(async (
     return badRequest("waitingFor must be a string or null", undefined, requestId);
   }
 
+  const waitingForTaskId = (body as any).waitingForTaskId;
+  if (waitingForTaskId !== undefined && waitingForTaskId !== null && typeof waitingForTaskId !== "string") {
+    return badRequest("waitingForTaskId must be a string or null", undefined, requestId);
+  }
+
+  const waitingForTaskTitle = (body as any).waitingForTaskTitle;
+  if (waitingForTaskTitle !== undefined && waitingForTaskTitle !== null && typeof waitingForTaskTitle !== "string") {
+    return badRequest("waitingForTaskTitle must be a string or null", undefined, requestId);
+  }
+
+  const resumeStateAfterWait = (body as any).resumeStateAfterWait;
+  if (resumeStateAfterWait !== undefined && resumeStateAfterWait !== null && resumeStateAfterWait !== "next" && resumeStateAfterWait !== "inbox") {
+    return badRequest("resumeStateAfterWait must be 'next', 'inbox', or null", undefined, requestId);
+  }
+
+  let resolvedWaitingForTaskTitle: string | undefined;
+  if (typeof waitingForTaskId === "string" && waitingForTaskId.trim()) {
+    const dep = await validateStructuredDependencyForCreate({
+      sub,
+      parentTaskId,
+      waitingForTaskId: waitingForTaskId.trim(),
+    });
+    if (!dep.ok) return badRequest(dep.message, undefined, requestId);
+    resolvedWaitingForTaskTitle = dep.waitingForTaskTitle;
+  }
+
   const now = new Date().toISOString();
   const effortMinutes = effortR.value ? (effortR.value.unit === "hours" ? Math.round(effortR.value.value * 60) : Math.round(effortR.value.value * 8 * 60)) : undefined;
   const estimatedMinutes = estimatedMinutesR.value ?? effortMinutes;
@@ -113,6 +140,11 @@ export const handler = withHttp(async (
     state,
     context: typeof context === "string" ? context : undefined,
     waitingFor: typeof waitingFor === "string" ? waitingFor : undefined,
+    waitingForTaskId: typeof waitingForTaskId === "string" && waitingForTaskId.trim() ? waitingForTaskId.trim() : undefined,
+    waitingForTaskTitle: resolvedWaitingForTaskTitle ?? (typeof waitingForTaskTitle === "string" && waitingForTaskTitle.trim() ? waitingForTaskTitle.trim() : undefined),
+    resumeStateAfterWait: (typeof waitingForTaskId === "string" && waitingForTaskId.trim())
+      ? ((resumeStateAfterWait as any) ?? "next")
+      : undefined,
     createdAt: now,
     updatedAt: now,
     rev: 0,

@@ -33,6 +33,9 @@ export function toTask(item: any): Task {
     state: item.state as WorkflowState | undefined,
     context: item.context,
     waitingFor: item.waitingFor,
+    waitingForTaskId: item.waitingForTaskId,
+    waitingForTaskTitle: item.waitingForTaskTitle,
+    resumeStateAfterWait: item.resumeStateAfterWait,
 
     dueDate: item.dueDate,
     priority: item.priority as TaskPriority | undefined,

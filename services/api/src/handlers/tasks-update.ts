@@ -134,6 +134,10 @@ export const handler = withHttp(
       patch.waitingFor = v as any;
     }
 
+    if ((body as any).waitingForTaskId !== undefined) {
+      return badRequest("Structured blockers are currently supported only for tasks inside a project", undefined, requestId);
+    }
+
     // Legacy status compatibility:
     // - If state is provided, status is derived server-side.
     // - If only status is provided, map it to a state transition.
