@@ -135,7 +135,23 @@ export const handler = withHttp(
     }
 
     if ((body as any).waitingForTaskId !== undefined) {
-      return badRequest("Structured blockers are currently supported only for tasks inside a project", undefined, requestId);
+      const v = (body as any).waitingForTaskId;
+      if (v !== null) {
+        return badRequest("Structured blockers are currently supported only for tasks inside a project", undefined, requestId);
+      }
+      (patch as any).waitingForTaskId = null;
+    }
+
+    if ((body as any).waitingForTaskTitle !== undefined) {
+      const v = (body as any).waitingForTaskTitle;
+      if (v !== null) return badRequest("waitingForTaskTitle must be null for top-level tasks", undefined, requestId);
+      (patch as any).waitingForTaskTitle = null;
+    }
+
+    if ((body as any).resumeStateAfterWait !== undefined) {
+      const v = (body as any).resumeStateAfterWait;
+      if (v !== null) return badRequest("resumeStateAfterWait must be null for top-level tasks", undefined, requestId);
+      (patch as any).resumeStateAfterWait = null;
     }
 
     // Legacy status compatibility:
