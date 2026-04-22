@@ -32,6 +32,7 @@ export function toTask(item: any): Task {
     entityType: item.entityType as EntityType | undefined,
     state: item.state as WorkflowState | undefined,
     context: item.context,
+    contextIds: Array.isArray(item.contextIds) ? item.contextIds.filter((value: unknown) => typeof value === "string") : undefined,
     waitingFor: item.waitingFor,
     waitingForTaskId: item.waitingForTaskId,
     waitingForTaskTitle: item.waitingForTaskTitle,

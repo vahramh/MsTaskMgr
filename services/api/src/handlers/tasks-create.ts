@@ -72,6 +72,10 @@ export const handler = withHttp(async (event: APIGatewayProxyEventV2, ctx: HttpH
   if (context !== undefined && context !== null && typeof context !== "string") {
     return badRequest("context must be a string or null", undefined, requestId);
   }
+  const contextIds = (body as any).contextIds;
+  if (contextIds !== undefined && contextIds !== null && (!Array.isArray(contextIds) || contextIds.some((value: unknown) => typeof value !== "string"))) {
+    return badRequest("contextIds must be an array of strings or null", undefined, requestId);
+  }
 
   const waitingFor = (body as any).waitingFor;
   if (waitingFor !== undefined && waitingFor !== null && typeof waitingFor !== "string") {
@@ -111,6 +115,7 @@ export const handler = withHttp(async (event: APIGatewayProxyEventV2, ctx: HttpH
     entityType,
     state,
     context: typeof context === "string" ? context : undefined,
+    contextIds: Array.isArray(contextIds) ? contextIds.filter((value: string) => value.trim().length > 0) : undefined,
     waitingFor: typeof waitingFor === "string" ? waitingFor : undefined,
 
     createdAt: now,

@@ -1,5 +1,5 @@
 import React from "react";
-import type { Task } from "@tm/shared";
+import type { ExecutionContext, Task } from "@tm/shared";
 import { TaskNodeEditor } from "./TaskNodeEditor";
 import { TaskNodeSummary } from "./TaskNodeSummary";
 import { TaskQuickActions } from "./TaskQuickActions";
@@ -22,6 +22,7 @@ export function RootExecutionList({
   presentation,
   onOpenAttachPanel,
   getBlockerOptions,
+  contexts,
 }: {
   items: Task[];
   isExpanded: (taskId: string) => boolean;
@@ -38,6 +39,7 @@ export function RootExecutionList({
   presentation: Required<Pick<TaskPresentationHelpers, "deriveState" | "deriveEntityType" | "dueTone" | "fmtDue" | "renderTaskStateBadge" | "formatTime" | "getHygieneSignals">>;
   onOpenAttachPanel?: (task: Task) => void;
   getBlockerOptions: (task: Task) => Array<{ taskId: string; title: string }>;
+  contexts: ExecutionContext[];
 }) {
   return (
     <div style={{ display: "grid", gap: 10 }}>
@@ -62,6 +64,7 @@ export function RootExecutionList({
           presentation={presentation}
           onOpenAttachPanel={onOpenAttachPanel}
           getBlockerOptions={getBlockerOptions}
+          contexts={contexts}
         />
       ))}
     </div>
@@ -87,6 +90,7 @@ function RootExecutionItem({
   presentation,
   onOpenAttachPanel,
   getBlockerOptions,
+  contexts,
 }: {
   task: Task;
   pending: boolean;
@@ -106,6 +110,7 @@ function RootExecutionItem({
   presentation: Required<Pick<TaskPresentationHelpers, "deriveState" | "deriveEntityType" | "dueTone" | "fmtDue" | "renderTaskStateBadge" | "formatTime">>;
   onOpenAttachPanel?: (task: Task) => void;
   getBlockerOptions: (task: Task) => Array<{ taskId: string; title: string }>;
+  contexts: ExecutionContext[];
 }) {
   const isProject = presentation.deriveEntityType(task) === "project";
   const canAttachToProject = !task.parentTaskId && presentation.deriveEntityType(task) === "action" && presentation.deriveState(task) === "inbox";
@@ -129,6 +134,7 @@ function RootExecutionItem({
               onSave={() => void taskSurface.saveEditorForNode(task)}
               requireWorkflowFields
               blockerOptions={getBlockerOptions(task)}
+              contexts={contexts}
             />
           ) : (
             <TaskNodeSummary
@@ -144,6 +150,7 @@ function RootExecutionItem({
               hygieneSignals={hygieneSignals}
               showUpdatedAt
               formatTime={presentation.formatTime}
+              contexts={contexts}
             />
           )}
         </div>

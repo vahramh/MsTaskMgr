@@ -1,10 +1,10 @@
 
 import { useCallback, useState } from "react";
-import type { EntityType, Task, WorkflowState } from "@tm/shared";
+import type { EntityType, ExecutionContext, Task, WorkflowState } from "@tm/shared";
 import type { TaskStatus } from "@tm/shared";
 import type { CognitoTokens } from "../../../auth/tokenStore";
 import type { TaskEditorModel } from "../components/taskNodeTypes";
-import { parseContextTokens, serializeContextTokens } from "../contextOptions";
+import { contextIdsFromTask, serializeContextSummary } from "../contextOptions";
 import { buildTaskAttributes, safeAdvancedJson, splitTaskAttributes } from "../taskMetadata";
 
 type EditorPatch = {
@@ -28,6 +28,7 @@ type EditorPatch = {
 };
 
 type Options = {
+  contexts: ExecutionContext[];
   tokens: CognitoTokens | null;
   pendingById: Record<string, true>;
   patchTask: (task: Task, partial: any, overrideStatus?: TaskStatus) => Promise<void>;
@@ -58,6 +59,7 @@ export function useTaskSurfaceController({
   reopenSubtreeNode,
   deleteSubtreeNode,
   pendingForSubtask,
+  contexts,
 }: Options) {
   const [editor, setEditor] = useState<TaskEditorModel>(null);
 
@@ -82,13 +84,13 @@ export function useTaskSurfaceController({
       advancedOpen: false,
       entityType: deriveEntityType(t),
       state: deriveState(t),
-      contextTokens: parseContextTokens(t.context),
+      contextIds: contextIdsFromTask(t, contexts),
       waitingFor: t.waitingFor ?? "",
       waitingForTaskId: t.waitingForTaskId ?? "",
       waitingForTaskTitle: t.waitingForTaskTitle ?? "",
       resumeStateAfterWait: t.resumeStateAfterWait ?? "next",
     });
-  }, [deriveEntityType, deriveState]);
+  }, [contexts, deriveEntityType, deriveState]);
 
   const buildEditorPatch = useCallback((currentEditor: Exclude<TaskEditorModel, null>, currentTask: Task) => {
     const newTitle = currentEditor.title.trim();
@@ -141,7 +143,8 @@ export function useTaskSurfaceController({
       description: newDesc || undefined,
       entityType: currentEditor.parentTaskId ? "action" : currentEditor.entityType,
       state: currentEditor.state,
-      context: serializeContextTokens(currentEditor.contextTokens),
+      context: serializeContextSummary(currentEditor.contextIds, contexts),
+      contextIds: currentEditor.contextIds,
       waitingFor: currentEditor.state === "waiting" ? (waitingNote || null) : null,
       waitingForTaskId: currentEditor.state === "waiting" ? (blockerId || null) : null,
       waitingForTaskTitle: currentEditor.state === "waiting" ? (blockerTitle || null) : null,
@@ -159,7 +162,7 @@ export function useTaskSurfaceController({
         existing: currentTask.attrs,
       }),
     };
-  }, []);
+  }, [contexts]);
 
   const saveEditorForNode = useCallback(
     async (node: Task) => {

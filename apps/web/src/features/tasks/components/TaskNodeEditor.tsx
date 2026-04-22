@@ -1,6 +1,7 @@
 
 import React from "react";
 import type { TaskEditorModel } from "./taskNodeTypes";
+import type { ExecutionContext } from "@tm/shared";
 import { TaskContextSelector } from "./TaskContextSelector";
 
 export type TaskBlockerOption = {
@@ -32,6 +33,7 @@ export function TaskNodeEditor({
   onSave,
   requireWorkflowFields,
   blockerOptions = [],
+  contexts = [],
 }: {
   editor: TaskEditorModel;
   setEditor: React.Dispatch<React.SetStateAction<TaskEditorModel>>;
@@ -40,6 +42,7 @@ export function TaskNodeEditor({
   onSave: () => void;
   requireWorkflowFields?: boolean;
   blockerOptions?: TaskBlockerOption[];
+  contexts?: ExecutionContext[];
 }) {
   if (!editor) return null;
 
@@ -126,15 +129,16 @@ export function TaskNodeEditor({
       </div>
 
       <TaskContextSelector
-        selected={editor.contextTokens}
+        contexts={contexts}
+        selected={editor.contextIds}
         onToggle={(token) =>
           setEditor((prev) =>
             prev
               ? {
                   ...prev,
-                  contextTokens: prev.contextTokens.includes(token)
-                    ? prev.contextTokens.filter((value) => value !== token)
-                    : [...prev.contextTokens, token],
+                  contextIds: prev.contextIds.includes(token)
+                    ? prev.contextIds.filter((value) => value !== token)
+                    : [...prev.contextIds, token],
                 }
               : prev
           )

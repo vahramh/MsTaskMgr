@@ -25,6 +25,7 @@ import { deriveEntityType, deriveState, dueTone, fmtDue, formatTime, renderTaskS
 import { parseVoiceTaskCapture, promptDueDate, promptWaitingFor, speechErrorLabel } from "./voiceTaskCapture";
 import { computeFocusedProjectDiagnostics } from "./projectDiagnostics";
 import { createSubtask } from "./api";
+import { useExecutionContexts } from "../contexts/useExecutionContexts";
 
 async function tryCopy(text: string): Promise<void> {
   try {
@@ -36,6 +37,7 @@ async function tryCopy(text: string): Promise<void> {
 
 export default function TasksPage() {
   const { tokens } = useAuth();
+  const executionContexts = useExecutionContexts(tokens);
   const {
     items,
     hasMore,
@@ -98,6 +100,7 @@ export default function TasksPage() {
 
   const createController = useTaskCreateController({
     creating,
+    contexts: executionContexts.items,
     onCreate: create,
     onAfterCreate: refreshExecutionModel,
   });
@@ -190,6 +193,7 @@ export default function TasksPage() {
     reopenSubtreeNode,
     deleteSubtreeNode,
     pendingForSubtask,
+    contexts: executionContexts.items,
   });
 
   const availableProjects = useMemo(
@@ -452,6 +456,7 @@ export default function TasksPage() {
       toggleSubtaskSpeech={toggleSubtaskSpeech}
       speechErrorLabel={speechErrorLabel}
       getBlockerOptions={getBlockerOptions}
+      contexts={executionContexts.items}
     />
   ), [
     getSubtree,
@@ -580,7 +585,8 @@ export default function TasksPage() {
         advancedOpen={createController.state.advancedOpen}
         createEntityType={createController.state.createEntityType}
         createState={createController.state.createState}
-        createContextTokens={createController.state.createContextTokens}
+        createContextIds={createController.state.createContextIds}
+        contexts={executionContexts.items}
         createWaitingFor={createController.state.createWaitingFor}
         createWaitingForTaskId={createController.state.createWaitingForTaskId}
         createWaitingForTaskTitle={createController.state.createWaitingForTaskTitle}
@@ -648,6 +654,7 @@ export default function TasksPage() {
                 hygieneSignals={getHygieneSignals(focusedProject, new Date())}
                 diagnostics={focusedProjectDiagnostics}
                 getBlockerOptions={getBlockerOptions}
+                contexts={executionContexts.items}
               />
             ) : null}
           >
@@ -727,6 +734,7 @@ export default function TasksPage() {
               getHygieneSignals,
             }}
             getBlockerOptions={getBlockerOptions}
+            contexts={executionContexts.items}
           />
         )}
       </div>

@@ -1,5 +1,5 @@
 import React from "react";
-import type { Task } from "@tm/shared";
+import type { ExecutionContext, Task } from "@tm/shared";
 import { TaskNodeEditor } from "./TaskNodeEditor";
 import type { HygieneSignalViewModel, TaskEditorModel } from "./taskNodeTypes";
 import type { TaskPresentationHelpers } from "./taskRenderModels";
@@ -38,6 +38,7 @@ export function FocusedProjectSummary({
   hygieneSignals,
   diagnostics,
   getBlockerOptions,
+  contexts,
 }: {
   task: Task;
   pending: boolean;
@@ -50,6 +51,7 @@ export function FocusedProjectSummary({
   hygieneSignals: HygieneSignalViewModel[];
   diagnostics?: FocusedProjectDiagnostics | null;
   getBlockerOptions: (task: Task) => Array<{ taskId: string; title: string }>;
+  contexts: ExecutionContext[];
 }) {
   if (isEditing) {
     return (
@@ -61,6 +63,7 @@ export function FocusedProjectSummary({
         onSave={() => void saveEditorForNode(task)}
         requireWorkflowFields
         blockerOptions={getBlockerOptions(task)}
+        contexts={contexts}
       />
     );
   }

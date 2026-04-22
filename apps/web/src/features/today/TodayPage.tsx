@@ -14,6 +14,7 @@ import RecommendedTasksSection from "./RecommendedTasksSection";
 import GuidedActionsPanel from "./GuidedActionsPanel";
 import ProjectHeatStrip from "./ProjectHeatStrip";
 import ProjectHealthPanel from "./ProjectHealthPanel";
+import { useExecutionContexts } from "../contexts/useExecutionContexts";
 
 type UiError = {
   message: string;
@@ -86,8 +87,11 @@ function withDeferredAttrs(task: TodayTask) {
 export default function TodayPage() {
   const { tokens } = useAuth();
   const navigate = useNavigate();
+  const executionContexts = useExecutionContexts(tokens);
   const [mode, setMode] = useState<TodayExecutionMode>("all");
   const [includeShared, setIncludeShared] = useState(false);
+  const [activeContextIds, setActiveContextIds] = useState<string[]>([]);
+  const [includeNoContext, setIncludeNoContext] = useState(true);
   const [data, setData] = useState<TodayOverviewResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<UiError | null>(null);
@@ -105,7 +109,7 @@ export default function TodayPage() {
     const ac = new AbortController();
     setLoading(true);
     setError(null);
-    getToday(tokens, includeShared, ac.signal)
+    getToday(tokens, includeShared, activeContextIds, includeNoContext, ac.signal)
       .then((resp) => {
         setData(resp);
         setMode(resp.defaultMode ?? "all");
@@ -116,7 +120,7 @@ export default function TodayPage() {
       })
       .finally(() => setLoading(false));
     return () => ac.abort();
-  }, [tokens, includeShared, refreshVersion]);
+  }, [tokens, includeShared, activeContextIds, includeNoContext, refreshVersion]);
 
   const openProject = (task: TodayTask) => {
     const projectId =
@@ -235,6 +239,43 @@ export default function TodayPage() {
             <input type="checkbox" checked={includeShared} onChange={(e) => setIncludeShared(e.target.checked)} />
             Include shared tasks
           </label>
+          <label className="row" style={{ gap: 8, fontWeight: 600 }}>
+            <input type="checkbox" checked={includeNoContext} onChange={(e) => setIncludeNoContext(e.target.checked)} />
+            Include tasks with no context
+          </label>
+        </div>
+      </div>
+
+      
+      <div className="card" style={{ padding: 14 }}>
+        <div style={{ fontWeight: 700, marginBottom: 8 }}>Active execution contexts</div>
+        {executionContexts.loading ? <div className="help">Loading contexts…</div> : null}
+        {!executionContexts.loading && executionContexts.items.length === 0 ? (
+          <div className="help">No execution contexts defined yet. Use the Contexts page to create them.</div>
+        ) : (
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            {executionContexts.items.filter((item) => !item.archived).map((item) => {
+              const active = activeContextIds.includes(item.contextId);
+              return (
+                <button
+                  key={item.contextId}
+                  type="button"
+                  className="btn btn-secondary btn-compact"
+                  onClick={() => setActiveContextIds((previous) => previous.includes(item.contextId) ? previous.filter((value) => value !== item.contextId) : [...previous, item.contextId])}
+                  style={{
+                    borderColor: active ? "#2563eb" : undefined,
+                    background: active ? "#eff6ff" : undefined,
+                    color: active ? "#1d4ed8" : undefined,
+                  }}
+                >
+                  {item.name}
+                </button>
+              );
+            })}
+          </div>
+        )}
+        <div className="help" style={{ marginTop: 8 }}>
+          Match rule: a task is eligible if it matches any selected context.
         </div>
       </div>
 

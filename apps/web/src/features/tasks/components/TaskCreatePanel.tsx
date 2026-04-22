@@ -1,5 +1,5 @@
 import React from "react";
-import { priorityLabel, type EntityType, type ExecutionContextOption, type WorkflowState } from "@tm/shared";
+import { priorityLabel, type EntityType, type ExecutionContext, type WorkflowState } from "@tm/shared";
 import { useSpeechToText } from "../../../hooks/useSpeechToText";
 import { TaskContextSelector } from "./TaskContextSelector";
 
@@ -26,7 +26,8 @@ export function TaskCreatePanel({
   advancedOpen,
   createEntityType,
   createState,
-  createContextTokens,
+  createContextIds,
+  contexts,
   createWaitingFor,
   createWaitingForTaskId,
   createWaitingForTaskTitle,
@@ -84,7 +85,8 @@ export function TaskCreatePanel({
   advancedOpen: boolean;
   createEntityType: EntityType;
   createState: WorkflowState;
-  createContextTokens: ExecutionContextOption[];
+  createContextIds: string[];
+  contexts: ExecutionContext[];
   createWaitingFor: string;
   createWaitingForTaskId: string;
   createWaitingForTaskTitle: string;
@@ -117,7 +119,7 @@ export function TaskCreatePanel({
   onAdvancedOpenChange: (value: boolean) => void;
   onCreateEntityTypeChange: (value: EntityType) => void;
   onCreateStateChange: (value: WorkflowState) => void;
-  onToggleContextToken: (value: ExecutionContextOption) => void;
+  onToggleContextToken: (value: string) => void;
   onCreateWaitingForChange: (value: string) => void;
   onCreateWaitingForTaskIdChange: (value: string) => void;
   onCreateWaitingForTaskTitleChange: (value: string) => void;
@@ -205,7 +207,7 @@ export function TaskCreatePanel({
           </label>
         </div>
 
-        <TaskContextSelector selected={createContextTokens} onToggle={onToggleContextToken} />
+        <TaskContextSelector contexts={contexts} selected={createContextIds} onToggle={onToggleContextToken} />
 
         {createState === "waiting" ? (
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 10 }}>

@@ -332,6 +332,14 @@ export async function updateTask(
       expr.push("#context = :context");
     }
   }
+  if ((patch as any).contextIds !== undefined) {
+    names["#contextIds"] = "contextIds";
+    if ((patch as any).contextIds === null || (Array.isArray((patch as any).contextIds) && (patch as any).contextIds.length === 0)) remove.push("#contextIds");
+    else {
+      values[":contextIds"] = (patch as any).contextIds;
+      expr.push("#contextIds = :contextIds");
+    }
+  }
   if ((patch as any).waitingFor !== undefined) {
     names["#waitingFor"] = "waitingFor";
     if ((patch as any).waitingFor === null) remove.push("#waitingFor");
@@ -626,6 +634,14 @@ export async function updateSubtask(
     else {
       values[":context"] = (patch as any).context;
       expr.push("#context = :context");
+    }
+  }
+  if ((patch as any).contextIds !== undefined) {
+    names["#contextIds"] = "contextIds";
+    if ((patch as any).contextIds === null || (Array.isArray((patch as any).contextIds) && (patch as any).contextIds.length === 0)) remove.push("#contextIds");
+    else {
+      values[":contextIds"] = (patch as any).contextIds;
+      expr.push("#contextIds = :contextIds");
     }
   }
   if ((patch as any).waitingFor !== undefined) {

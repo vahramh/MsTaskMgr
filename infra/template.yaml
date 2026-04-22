@@ -11,7 +11,7 @@ Parameters:
     Type: String
   AllowedOrigins:
     Type: CommaDelimitedList
-    Default: "http://localhost:5173,http://127.0.0.1:5173"
+    Default: "http://localhost:5173,http://127.0.0.1:5173,https://tm.melsoft.com.au"
     Description: Allowed CORS origins for the HTTP API
   AccessLogRetentionDays:
     Type: Number
@@ -138,6 +138,68 @@ Resources:
         EntryPoints:
           - src/handlers/me.ts
 
+
+  ContextsListCreateFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ../services/api
+      Handler: contexts-list-create.handler
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref TasksTable
+      Events:
+        ContextsListRoute:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /contexts
+            Method: GET
+            Auth:
+              Authorizer: CognitoAuthorizer
+        ContextsCreateRoute:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /contexts
+            Method: POST
+            Auth:
+              Authorizer: CognitoAuthorizer
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        Format: cjs
+        Minify: false
+        Target: node20
+        Sourcemap: true
+        EntryPoints:
+          - src/handlers/contexts-list-create.ts
+
+  ContextsUpdateFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ../services/api
+      Handler: contexts-update.handler
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref TasksTable
+      Events:
+        ContextsUpdateRoute:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /contexts/{contextId}
+            Method: PATCH
+            Auth:
+              Authorizer: CognitoAuthorizer
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        Format: cjs
+        Minify: false
+        Target: node20
+        Sourcemap: true
+        EntryPoints:
+          - src/handlers/contexts-update.ts
   CreateTaskFunction:
     Type: AWS::Serverless::Function
     Properties:

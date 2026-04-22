@@ -6,6 +6,7 @@ import SharedTasksPage from "../features/shared/SharedTasksPage";
 import HelpPage from "../features/help/HelpPage";
 import TodayPage from "../features/today/TodayPage";
 import ReviewPage from "../features/review/ReviewPage";
+import ExecutionContextsPage from "../features/contexts/ExecutionContextsPage";
 
 function TabLink({ to, label }: { to: string; label: string }) {
   return (
@@ -52,6 +53,7 @@ export default function AppShell() {
             <TabLink to="/app/review" label="Review" />
             <TabLink to="/app/tasks" label="Tasks" />
             <TabLink to="/app/shared" label="Shared" />
+            <TabLink to="/app/contexts" label="Contexts" />
             <TabLink to="/app/profile" label="Profile" />
             <TabLink to="/app/help" label="Help" />
           </nav>
@@ -64,6 +66,7 @@ export default function AppShell() {
             <Route index element={<Navigate to="/app/today" replace />} />
             <Route path="tasks" element={<TasksPage />} />
             <Route path="shared" element={<SharedTasksPage />} />
+            <Route path="contexts" element={<ExecutionContextsPage />} />
             <Route path="profile" element={<ProfilePage />} />
             <Route path="help" element={<HelpPage />} />
             <Route path="*" element={<Navigate to="/app/today" replace />} />

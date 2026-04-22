@@ -1,21 +1,7 @@
-import type { ExecutionContextOption } from "@tm/shared";
 
-export const CONTEXT_OPTIONS: Array<{ value: ExecutionContextOption; label: string }> = [
-  { value: "computer", label: "Computer" },
-  { value: "phone", label: "Phone" },
-  { value: "home", label: "Home" },
-  { value: "office", label: "Office" },
-  { value: "out-and-about", label: "Out and about" },
-  { value: "deep-focus", label: "Deep focus" },
-  { value: "light-admin", label: "Light admin" },
-  { value: "low-energy", label: "Low energy" },
-  { value: "calls", label: "Calls" },
-  { value: "email", label: "Email" },
-  { value: "agenda", label: "Agenda" },
-  { value: "quick-win", label: "Quick win" },
-];
+import type { ExecutionContext } from "@tm/shared";
 
-const LEGACY_MAP: Record<string, ExecutionContextOption> = {
+const LEGACY_MAP: Record<string, string> = {
   "@home": "home",
   home: "home",
   office: "office",
@@ -32,43 +18,58 @@ const LEGACY_MAP: Record<string, ExecutionContextOption> = {
   agenda: "agenda",
   meeting: "agenda",
   meetings: "agenda",
-  admin: "light-admin",
-  "light admin": "light-admin",
-  "light-admin": "light-admin",
-  "low energy": "low-energy",
-  "low-energy": "low-energy",
-  focus: "deep-focus",
-  "deep focus": "deep-focus",
-  "deep-focus": "deep-focus",
-  quick: "quick-win",
-  "quick win": "quick-win",
-  "quick-win": "quick-win",
-  errands: "out-and-about",
-  outside: "out-and-about",
-  "out-and-about": "out-and-about",
+  admin: "light admin",
+  "light admin": "light admin",
+  "light-admin": "light admin",
+  "low energy": "low energy",
+  "low-energy": "low energy",
+  focus: "deep focus",
+  "deep focus": "deep focus",
+  "deep-focus": "deep focus",
+  quick: "quick win",
+  "quick win": "quick win",
+  "quick-win": "quick win",
+  errands: "out and about",
+  outside: "out and about",
+  "out-and-about": "out and about",
 };
 
-export function parseContextTokens(raw?: string | null): ExecutionContextOption[] {
+export function parseLegacyContextNames(raw?: string | null): string[] {
   if (!raw) return [];
-  const seen = new Set<ExecutionContextOption>();
+  const seen = new Set<string>();
   for (const part of raw.split(/[|,;]+/)) {
     const key = part.trim().toLowerCase();
     if (!key) continue;
-    const mapped = LEGACY_MAP[key];
-    if (mapped) seen.add(mapped);
+    seen.add(LEGACY_MAP[key] ?? key);
   }
-  return CONTEXT_OPTIONS.map((option) => option.value).filter((value) => seen.has(value));
-}
-
-export function serializeContextTokens(tokens: ExecutionContextOption[]): string | null {
-  const clean = CONTEXT_OPTIONS.map((option) => option.value).filter((value) => tokens.includes(value));
-  return clean.length ? clean.join(", ") : null;
+  return Array.from(seen);
 }
 
 export function formatContextSummary(raw?: string | null): string | null {
-  const tokens = parseContextTokens(raw);
+  const tokens = parseLegacyContextNames(raw);
   if (!tokens.length) return raw?.trim() || null;
-  return CONTEXT_OPTIONS.filter((option) => tokens.includes(option.value))
-    .map((option) => option.label)
-    .join(" · ");
+  return tokens.map((token) => token.replace(/\w/g, (value) => value.toUpperCase())).join(" · ");
+}
+
+export function contextIdsFromTask(task: { contextIds?: string[]; context?: string | null }, contexts: ExecutionContext[]): string[] {
+  if (Array.isArray(task.contextIds) && task.contextIds.length > 0) return task.contextIds;
+  const names = parseLegacyContextNames(task.context);
+  if (!names.length) return [];
+  const byName = new Map(contexts.map((item) => [item.name.trim().toLowerCase(), item.contextId] as const));
+  return names.map((name) => byName.get(name.trim().toLowerCase())).filter((value): value is string => Boolean(value));
+}
+
+export function summarizeContexts(contextIds: string[], contexts: ExecutionContext[], raw?: string | null): string | null {
+  if (contextIds.length > 0) {
+    const byId = new Map(contexts.map((item) => [item.contextId, item] as const));
+    const names = contextIds.map((id) => byId.get(id)?.name).filter((value): value is string => Boolean(value));
+    if (names.length > 0) return names.join(" · ");
+  }
+  return formatContextSummary(raw);
+}
+
+export function serializeContextSummary(contextIds: string[], contexts: ExecutionContext[]): string | null {
+  const byId = new Map(contexts.map((item) => [item.contextId, item] as const));
+  const names = contextIds.map((id) => byId.get(id)?.name?.trim()).filter((value): value is string => Boolean(value));
+  return names.length ? names.join(", ") : null;
 }

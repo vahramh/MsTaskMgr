@@ -1,7 +1,7 @@
 import React from "react";
-import type { EntityType, Task, WorkflowState } from "@tm/shared";
+import type { EntityType, ExecutionContext, Task, WorkflowState } from "@tm/shared";
 import type { HygieneSignalViewModel } from "./taskNodeTypes";
-import { formatContextSummary } from "../contextOptions";
+import { summarizeContexts } from "../contextOptions";
 
 export function TaskNodeSummary({
   task,
@@ -16,6 +16,7 @@ export function TaskNodeSummary({
   hygieneSignals,
   showUpdatedAt,
   formatTime,
+  contexts = [],
 }: {
   task: Task;
   fmtDue: (dueDate?: string) => string | null;
@@ -29,13 +30,14 @@ export function TaskNodeSummary({
   hygieneSignals?: HygieneSignalViewModel[];
   showUpdatedAt?: boolean;
   formatTime?: (iso: string) => string;
+  contexts?: ExecutionContext[];
 }) {
   const state = deriveState(task);
   const entityType = deriveEntityType(task);
   const due = fmtDue(task.dueDate);
   const dueInfo = dueTone(task.dueDate);
   const project = (task as Task & { project?: { title: string } }).project;
-  const context = formatContextSummary(task.context);
+  const context = summarizeContexts(task.contextIds ?? [], contexts, task.context);
 
   return (
     <div>

@@ -58,6 +58,45 @@ export type DurationEstimate = {
   value: number; // positive finite
 };
 
+
+export type ExecutionContextKind = "place" | "person" | "tool" | "mode" | "energy";
+
+export type ExecutionContext = {
+  contextId: string;
+  name: string;
+  kind: ExecutionContextKind;
+  sortOrder: number;
+  archived: boolean;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type ListExecutionContextsResponse = {
+  items: ExecutionContext[];
+};
+
+export type CreateExecutionContextRequest = {
+  name: string;
+  kind: ExecutionContextKind;
+  sortOrder?: number;
+};
+
+export type CreateExecutionContextResponse = {
+  context: ExecutionContext;
+};
+
+export type UpdateExecutionContextRequest = {
+  name?: string;
+  kind?: ExecutionContextKind;
+  sortOrder?: number;
+  archived?: boolean;
+};
+
+export type UpdateExecutionContextResponse = {
+  context: ExecutionContext;
+};
+
+
 /**
  * Controlled execution contexts used by the UI for structured filtering and capture.
  * Tasks continue to store context as a serialised string for backward compatibility.
@@ -103,8 +142,11 @@ export type Task = {
   /** Workflow state. Required for v2 items; derived from legacy fields during migration. */
   state?: WorkflowState;
 
-  /** Optional context string (e.g. "@home" or a serialised list of controlled contexts). */
+  /** Legacy context string retained for compatibility/display. */
   context?: string;
+
+  /** Canonical execution context identifiers. */
+  contextIds?: string[];
 
   /** Optional free-text note when waiting. */
   waitingFor?: string;
@@ -160,6 +202,7 @@ export type CreateTaskRequest = {
   entityType?: EntityType;
   state?: WorkflowState;
   context?: string;
+  contextIds?: string[];
   waitingFor?: string;
   waitingForTaskId?: string;
   waitingForTaskTitle?: string;
@@ -206,6 +249,9 @@ export type UpdateTaskRequest = {
 
   /** Set to null to clear. */
   context?: string | null;
+
+  /** Set to null or [] to clear. */
+  contextIds?: string[] | null;
 
   /** Set to null to clear. */
   waitingFor?: string | null;
@@ -525,6 +571,8 @@ export type TodayProjectHealthSummary = {
 export type TodayOverviewResponse = {
   generatedAt: string;
   includeShared: boolean;
+  activeContextIds?: string[];
+  includeNoContext?: boolean;
   defaultMode: TodayExecutionMode;
   executionMetrics: TodayExecutionMetrics;
   bestNextAction: TodayRecommendation | null;

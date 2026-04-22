@@ -1,21 +1,22 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { CreateTaskRequest, EntityType, ExecutionContextOption, WorkflowState } from "@tm/shared";
+import type { CreateTaskRequest, EntityType, ExecutionContext, WorkflowState } from "@tm/shared";
 import { useSpeechToText } from "../../../hooks/useSpeechToText";
 import { parseVoiceTaskCapture } from "../voiceTaskCapture";
 import { buildTaskAttributes } from "../taskMetadata";
-import { parseContextTokens, serializeContextTokens } from "../contextOptions";
+import { contextIdsFromTask, serializeContextSummary } from "../contextOptions";
 
 export type CreateTaskController = ReturnType<typeof useTaskCreateController>;
 
 type UseTaskCreateControllerArgs = {
   creating: boolean;
+  contexts: ExecutionContext[];
   onCreate: (request: CreateTaskRequest) => Promise<void>;
   onAfterCreate?: () => Promise<void> | void;
 };
 
 const INITIAL_ATTRS_JSON = "{}";
 
-export function useTaskCreateController({ creating, onCreate, onAfterCreate }: UseTaskCreateControllerArgs) {
+export function useTaskCreateController({ creating, contexts, onCreate, onAfterCreate }: UseTaskCreateControllerArgs) {
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [dueDate, setDueDate] = useState("");
@@ -33,7 +34,7 @@ export function useTaskCreateController({ creating, onCreate, onAfterCreate }: U
   const [showCreate, setShowCreate] = useState(false);
   const [createEntityType, setCreateEntityType] = useState<EntityType>("action");
   const [createState, setCreateState] = useState<WorkflowState>("inbox");
-  const [createContextTokens, setCreateContextTokens] = useState<ExecutionContextOption[]>([]);
+  const [createContextIds, setCreateContextIds] = useState<string[]>([]);
   const [createWaitingFor, setCreateWaitingFor] = useState("");
   const [createWaitingForTaskId, setCreateWaitingForTaskId] = useState("");
   const [createWaitingForTaskTitle, setCreateWaitingForTaskTitle] = useState("");
@@ -114,7 +115,7 @@ export function useTaskCreateController({ creating, onCreate, onAfterCreate }: U
     setAdvancedOpen(false);
     setCreateEntityType("action");
     setCreateState("inbox");
-    setCreateContextTokens([]);
+    setCreateContextIds([]);
     setCreateWaitingFor("");
     setCreateWaitingForTaskId("");
     setCreateWaitingForTaskTitle("");
@@ -138,7 +139,7 @@ export function useTaskCreateController({ creating, onCreate, onAfterCreate }: U
 
       if (parsed.waitingFor) setCreateWaitingFor(parsed.waitingFor);
       if (parsed.dueDate) setDueDate(parsed.dueDate);
-      if (parsed.context) setCreateContextTokens(parseContextTokens(parsed.context));
+      if (parsed.context) setCreateContextIds(contextIdsFromTask({ context: parsed.context }, contexts));
       window.setTimeout(() => titleRef.current?.focus(), 0);
     },
   });
@@ -158,7 +159,8 @@ export function useTaskCreateController({ creating, onCreate, onAfterCreate }: U
       description: descTrim || undefined,
       entityType: createEntityType,
       state: createState,
-      context: serializeContextTokens(createContextTokens) ?? undefined,
+      context: serializeContextSummary(createContextIds, contexts) ?? undefined,
+      contextIds: createContextIds.length ? createContextIds : undefined,
       waitingFor: createState === "waiting" ? (createWaitingFor.trim() || undefined) : undefined,
       waitingForTaskId: createState === "waiting" ? (createWaitingForTaskId.trim() || undefined) : undefined,
       waitingForTaskTitle: createState === "waiting" && createWaitingForTaskId.trim() ? (createWaitingForTaskTitle.trim() || undefined) : undefined,
@@ -199,7 +201,7 @@ export function useTaskCreateController({ creating, onCreate, onAfterCreate }: U
       showCreate,
       createEntityType,
       createState,
-      createContextTokens,
+      createContextIds,
       createWaitingFor,
       createWaitingForTaskId,
       createWaitingForTaskTitle,
@@ -245,8 +247,8 @@ export function useTaskCreateController({ creating, onCreate, onAfterCreate }: U
           setCreateResumeStateAfterWait("next");
         }
       },
-      toggleContextToken: (token: ExecutionContextOption) => {
-        setCreateContextTokens((previous) =>
+      toggleContextToken: (token: string) => {
+        setCreateContextIds((previous) =>
           previous.includes(token) ? previous.filter((value) => value !== token) : [...previous, token]
         );
       },
