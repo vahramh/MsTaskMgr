@@ -32,6 +32,7 @@ export type TaskTreeProps = {
   speechErrorLabel: (error: string | null) => string;
   getBlockerOptions: (task: Task) => Array<{ taskId: string; title: string }>;
   contexts: ExecutionContext[];
+  onOpenProject?: (projectId: string) => void;
 };
 
 export function TaskTree(props: TaskTreeProps) {
@@ -152,6 +153,7 @@ function TaskTreeNode({ parentTaskId, depth, filterState = "all", ...props }: Ta
                             onToggleExpand={() => void props.toggleExpand(task.taskId)}
                             expandLabel=""
                             contexts={props.contexts}
+                            onOpenProject={props.onOpenProject}
                           />
                         )}
                       </div>

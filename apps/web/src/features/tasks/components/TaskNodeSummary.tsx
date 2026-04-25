@@ -17,6 +17,7 @@ export function TaskNodeSummary({
   showUpdatedAt,
   formatTime,
   contexts = [],
+  onOpenProject,
 }: {
   task: Task;
   fmtDue: (dueDate?: string) => string | null;
@@ -31,12 +32,13 @@ export function TaskNodeSummary({
   showUpdatedAt?: boolean;
   formatTime?: (iso: string) => string;
   contexts?: ExecutionContext[];
+  onOpenProject?: (projectId: string) => void;
 }) {
   const state = deriveState(task);
   const entityType = deriveEntityType(task);
   const due = fmtDue(task.dueDate);
   const dueInfo = dueTone(task.dueDate);
-  const project = (task as Task & { project?: { title: string } }).project;
+  const project = (task as Task & { project?: { taskId: string; title: string } }).project;
   const context = summarizeContexts(task.contextIds ?? [], contexts, task.context);
 
   return (
@@ -47,7 +49,21 @@ export function TaskNodeSummary({
         <span className="pill">{entityType}</span>
         {task.priority ? <span className="pill">P{task.priority}</span> : null}
         {due && dueInfo.label ? <span className="pill">{dueInfo.label}</span> : null}
-        {project ? <span className="pill">Project: {project.title}</span> : null}
+        {project ? (
+          onOpenProject ? (
+            <button
+              type="button"
+              className="pill pill-button"
+              onClick={() => onOpenProject(project.taskId)}
+              title={`Open project: ${project.title}`}
+              aria-label={`Open project: ${project.title}`}
+            >
+              Project: {project.title}
+            </button>
+          ) : (
+            <span className="pill">Project: {project.title}</span>
+          )
+        ) : null}
       </div>
 
       {task.description ? <div style={{ marginTop: 6, whiteSpace: "pre-wrap" }}>{task.description}</div> : null}

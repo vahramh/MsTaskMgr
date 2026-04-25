@@ -16,6 +16,7 @@ export function RootExecutionList({
   focusId,
   clearFocus,
   setFocus,
+  onOpenProject,
   renderChildren,
   renderExtraPanel,
   taskSurface,
@@ -33,6 +34,7 @@ export function RootExecutionList({
   focusId: string | null;
   clearFocus: () => void;
   setFocus: (taskId: string) => void;
+  onOpenProject?: (projectId: string) => void;
   renderChildren: (taskId: string) => React.ReactNode;
   renderExtraPanel?: (task: Task) => React.ReactNode;
   taskSurface: TaskSurfaceActions;
@@ -58,6 +60,7 @@ export function RootExecutionList({
           focusId={focusId}
           clearFocus={clearFocus}
           setFocus={setFocus}
+          onOpenProject={onOpenProject}
           renderChildren={renderChildren}
           extraPanel={renderExtraPanel?.(task)}
           taskSurface={taskSurface}
@@ -84,6 +87,7 @@ function RootExecutionItem({
   focusId,
   clearFocus,
   setFocus,
+  onOpenProject,
   renderChildren,
   extraPanel,
   taskSurface,
@@ -104,6 +108,7 @@ function RootExecutionItem({
   focusId: string | null;
   clearFocus: () => void;
   setFocus: (taskId: string) => void;
+  onOpenProject?: (projectId: string) => void;
   renderChildren: (taskId: string) => React.ReactNode;
   extraPanel?: React.ReactNode;
   taskSurface: TaskSurfaceActions;
@@ -151,6 +156,7 @@ function RootExecutionItem({
               showUpdatedAt
               formatTime={presentation.formatTime}
               contexts={contexts}
+              onOpenProject={onOpenProject}
             />
           )}
         </div>

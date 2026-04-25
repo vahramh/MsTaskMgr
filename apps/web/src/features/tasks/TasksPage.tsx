@@ -457,6 +457,7 @@ export default function TasksPage() {
       speechErrorLabel={speechErrorLabel}
       getBlockerOptions={getBlockerOptions}
       contexts={executionContexts.items}
+      onOpenProject={setFocus}
     />
   ), [
     getSubtree,
@@ -476,6 +477,8 @@ export default function TasksPage() {
     subtaskSpeechParentId,
     toggleSubtaskSpeech,
     getBlockerOptions,
+    executionContexts.items,
+    setFocus,
   ]);
 
   const viewCounts = useMemo(() => ({
@@ -688,6 +691,7 @@ export default function TasksPage() {
             focusId={focusId}
             clearFocus={clearFocus}
             setFocus={setFocus}
+            onOpenProject={setFocus}
             renderChildren={(taskId) => renderChildren(taskId, 1)}
             onOpenAttachPanel={openAttachPanel}
             renderExtraPanel={(task) => (
