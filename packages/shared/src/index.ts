@@ -67,6 +67,8 @@ export type ExecutionContext = {
   kind: ExecutionContextKind;
   sortOrder: number;
   archived: boolean;
+  /** Whether this context should be included in scheduled recommendation emails. */
+  significant?: boolean;
   createdAt: string;
   updatedAt: string;
 };
@@ -74,6 +76,32 @@ export type ExecutionContext = {
 export type ListExecutionContextsResponse = {
   items: ExecutionContext[];
 };
+
+export type NotificationScheduleSettings = {
+  enabled: boolean;
+  timeOfDay: string; // HH:mm in the configured timezone
+  timezone: string;
+  topN: number;
+  lastSentAt?: string;
+  nextRunAt?: string;
+};
+
+export type UserSettings = {
+  /** Recipient address for recommendation emails. Sending is handled by system-managed AWS SES. */
+  notificationEmail?: string;
+  notificationSchedule: NotificationScheduleSettings;
+  updatedAt?: string;
+};
+
+export type UpdateUserSettingsRequest = {
+  notificationEmail?: string | null;
+  notificationSchedule?: Partial<NotificationScheduleSettings>;
+};
+
+export type GetUserSettingsResponse = { settings: UserSettings };
+export type UpdateUserSettingsResponse = { settings: UserSettings };
+export type SendRecommendationsEmailResponse = { sent: boolean; message: string; sentAt?: string };
+
 
 export type CreateExecutionContextRequest = {
   name: string;
@@ -90,6 +118,7 @@ export type UpdateExecutionContextRequest = {
   kind?: ExecutionContextKind;
   sortOrder?: number;
   archived?: boolean;
+  significant?: boolean;
 };
 
 export type UpdateExecutionContextResponse = {

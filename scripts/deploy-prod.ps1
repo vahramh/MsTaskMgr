@@ -4,7 +4,9 @@ param(
   [string]$Profile = "MsTaskMgrDeployer",
   [string]$UserPoolId = "ap-southeast-2_2X2XtKkRA",
   [string]$ClientId = "19qj35nqj8r9lf8nfiefbtl01b",
-  [string]$AllowedOrigins = "https://tm.melsoft.com.au,http://localhost:5173,http://127.0.0.1:5173"
+  [string]$AllowedOrigins = "https://tm.melsoft.com.au,http://localhost:5173,http://127.0.0.1:5173",
+  [string]$SesFromEmail = "",
+  [string]$SesFromName = "Execution Guidance System"
 )
 
 $ErrorActionPreference = "Stop"
@@ -25,4 +27,6 @@ sam deploy `
     CognitoUserPoolClientId="$ClientId" `
     CognitoRegion="$Region" `
     AllowedOrigins="$AllowedOrigins" `
+    SesFromEmail="$SesFromEmail" `
+    SesFromName="$SesFromName" `
   --no-confirm-changeset

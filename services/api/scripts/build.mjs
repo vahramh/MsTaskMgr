@@ -12,7 +12,10 @@ await build({
   "src/handlers/tasks-update.ts",
   "src/handlers/tasks-delete.ts",
   "src/handlers/tasks-complete.ts",
-  "src/handlers/today-get.ts"
+  "src/handlers/today-get.ts",
+  "src/handlers/settings-get-update.ts",
+  "src/handlers/settings-send-recommendations.ts",
+  "src/handlers/settings-scheduled-email.ts"
 ],
   bundle: true,
   platform: "node",

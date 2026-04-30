@@ -1,0 +1,20 @@
+Changed files included in this package:
+
+apps/web/src/features/settings/SettingsPage.tsx
+packages/shared/src/index.ts
+services/api/src/settings/repo.ts
+services/api/src/settings/recommendation-email.ts
+services/api/src/settings/ses.ts
+services/api/src/handlers/settings-get-update.ts
+services/api/src/handlers/settings-send-recommendations.ts
+services/api/src/handlers/settings-scheduled-email.ts
+services/api/scripts/build.mjs
+infra/template.yaml
+CHANGELOG_SETTINGS_EMAIL.md
+
+Removed obsolete file:
+services/api/src/settings/smtp.ts
+
+Build verification performed:
+npm run build --workspace=apps/web
+npm run build --workspace=services/api

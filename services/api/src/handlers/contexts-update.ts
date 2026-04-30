@@ -45,6 +45,11 @@ export const handler = withHttp(async (
       patch.archived = body.archived;
     }
 
+    if (body.significant !== undefined) {
+      if (typeof body.significant !== "boolean") return badRequest("significant must be boolean", undefined, requestId);
+      patch.significant = body.significant;
+    }
+
     const context = await updateExecutionContext(sub, contextId, patch);
     if (!context) return notFound("Execution context not found", undefined, requestId);
 

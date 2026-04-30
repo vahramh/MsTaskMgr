@@ -20,6 +20,7 @@ function toExecutionContext(item: Record<string, any>): ExecutionContext {
     kind: item.kind as ExecutionContextKind,
     sortOrder: typeof item.sortOrder === "number" ? item.sortOrder : 0,
     archived: Boolean(item.archived),
+    significant: Boolean(item.significant),
     createdAt: String(item.createdAt),
     updatedAt: String(item.updatedAt),
   };
@@ -85,6 +86,11 @@ export async function updateExecutionContext(sub: string, contextId: string, pat
     names["#archived"] = "archived";
     values[":archived"] = patch.archived;
     expr.push("#archived = :archived");
+  }
+  if (patch.significant !== undefined) {
+    names["#significant"] = "significant";
+    values[":significant"] = patch.significant;
+    expr.push("#significant = :significant");
   }
 
   const r = await ddb.send(new UpdateCommand({

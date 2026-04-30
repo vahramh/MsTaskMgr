@@ -17,6 +17,14 @@ Parameters:
     Type: Number
     Default: 30
     Description: CloudWatch Logs retention (days) for API access logs
+  SesFromEmail:
+    Type: String
+    Default: ""
+    Description: Verified SES sender email address for recommendation notifications
+  SesFromName:
+    Type: String
+    Default: "Execution Guidance System"
+    Description: Display name for recommendation notification emails
 
 Globals:
   Function:
@@ -30,6 +38,9 @@ Globals:
         TASKS_TABLE: !Ref TasksTable
         TASKS_GSI1: GSI1
         TASKS_GSI2: GSI2
+        SES_REGION: !Ref AWS::Region
+        SES_FROM_EMAIL: !Ref SesFromEmail
+        SES_FROM_NAME: !Ref SesFromName
 
 Resources:
   HttpApiAccessLogs:
@@ -936,6 +947,111 @@ Resources:
         Sourcemap: true
         EntryPoints:
           - src/handlers/review-get.ts
+
+  SettingsGetUpdateFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ../services/api
+      Handler: settings-get-update.handler
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref TasksTable
+      Events:
+        SettingsGetRoute:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /settings
+            Method: GET
+            Auth:
+              Authorizer: CognitoAuthorizer
+        SettingsUpdateRoute:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /settings
+            Method: PUT
+            Auth:
+              Authorizer: CognitoAuthorizer
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        Format: cjs
+        Minify: false
+        Target: node20
+        Sourcemap: true
+        EntryPoints:
+          - src/handlers/settings-get-update.ts
+
+  SettingsSendRecommendationsFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ../services/api
+      Handler: settings-send-recommendations.handler
+      Timeout: 30
+      MemorySize: 512
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref TasksTable
+        - Version: "2012-10-17"
+          Statement:
+            - Effect: Allow
+              Action:
+                - ses:SendEmail
+                - ses:SendRawEmail
+              Resource: "*"
+      Events:
+        SettingsSendRecommendationsRoute:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /settings/send-recommendations
+            Method: POST
+            Auth:
+              Authorizer: CognitoAuthorizer
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        Format: cjs
+        Minify: false
+        Target: node20
+        Sourcemap: true
+        EntryPoints:
+          - src/handlers/settings-send-recommendations.ts
+
+  SettingsScheduledEmailFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ../services/api
+      Handler: settings-scheduled-email.handler
+      Timeout: 60
+      MemorySize: 512
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref TasksTable
+        - Version: "2012-10-17"
+          Statement:
+            - Effect: Allow
+              Action:
+                - ses:SendEmail
+                - ses:SendRawEmail
+              Resource: "*"
+      Events:
+        EveryFifteenMinutes:
+          Type: Schedule
+          Properties:
+            Schedule: rate(15 minutes)
+            Enabled: true
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        Format: cjs
+        Minify: false
+        Target: node20
+        Sourcemap: true
+        EntryPoints:
+          - src/handlers/settings-scheduled-email.ts
+
 
 Outputs:
   ApiUrl:
