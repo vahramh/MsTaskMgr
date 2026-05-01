@@ -30,7 +30,12 @@ export async function sendRecommendationsEmailForUser(sub: string, now = new Dat
   const groups: Group[] = [];
   for (const context of significant) {
     const overview = await buildTodayOverview(sub, false, now, [context.contextId], false);
-    groups.push({ contextName: context.name, recommendations: overview.recommended.slice(0, topN) });
+    const recommendations = [
+      ...(overview.bestNextAction ? [overview.bestNextAction] : []),
+      ...overview.recommended,
+    ].slice(0, topN);
+
+    groups.push({ contextName: context.name, recommendations });
   }
   const { html, text } = render(groups);
   await sendSesEmail(notificationEmail, `EGS recommendations - ${now.toLocaleDateString("en-AU")}`, html, text);

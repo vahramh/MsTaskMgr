@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import type { ExecutionContext, UserSettings } from "@tm/shared";
+import { useEffect, useMemo, useState } from "react";
+import type { UserSettings } from "@tm/shared";
 import { useAuth } from "../../auth/AuthContext";
 import { useExecutionContexts } from "../contexts/useExecutionContexts";
 import { getSettings, sendRecommendationsNow, updateSettings } from "./api";
@@ -29,21 +29,26 @@ export default function SettingsPage() {
   }, []);
 
   const schedule = settings.notificationSchedule;
+  const emailContexts = useMemo(
+    () => contexts.items.filter((context) => !context.archived && context.significant),
+    [contexts.items]
+  );
 
   async function saveSettings() {
     setSaving(true); setMessage(null); setError(null);
     try {
       const r = await updateSettings({
         notificationEmail: settings.notificationEmail?.trim() || null,
-        notificationSchedule: schedule,
+        notificationSchedule: {
+          enabled: schedule.enabled,
+          timeOfDay: schedule.timeOfDay,
+          timezone: schedule.timezone,
+          topN: schedule.topN,
+        },
       });
       setSettings(r.settings); setMessage("Settings saved.");
     } catch (e: any) { setError(e?.message ?? "Failed to save settings"); }
     finally { setSaving(false); }
-  }
-
-  async function toggleSignificant(context: ExecutionContext) {
-    await contexts.update(context.contextId, { significant: !context.significant });
   }
 
   async function sendNow() {
@@ -61,27 +66,32 @@ export default function SettingsPage() {
         <div>
           <p className="eyebrow">Configuration</p>
           <h1>Settings</h1>
-          <p className="muted">Configure significant contexts and scheduled execution guidance emails.</p>
+          <p className="muted">Configure scheduled execution guidance emails.</p>
         </div>
         <button className="btn btn-primary" onClick={saveSettings} disabled={saving}>{saving ? "Saving…" : "Save settings"}</button>
       </div>
 
       {error && <div className="alert alert-error">{error}</div>}
       {message && <div className="alert alert-success">{message}</div>}
+      {contexts.error && <div className="alert alert-error">{contexts.error}</div>}
 
       <div className="card stack">
-        <h2>Significant execution contexts</h2>
-        <p className="muted">Recommendation emails are grouped by contexts marked as significant.</p>
-        <div className="settings-context-list">
-          {contexts.items.filter((c) => !c.archived).map((context) => (
-            <label key={context.contextId} className="settings-context-row">
-              <input type="checkbox" checked={Boolean(context.significant)} onChange={() => void toggleSignificant(context)} />
-              <span>{context.name}</span>
-              <span className="pill">{context.kind}</span>
-            </label>
-          ))}
-          {!contexts.items.filter((c) => !c.archived).length && <p className="muted">No execution contexts have been configured yet.</p>}
-        </div>
+        <h2>Email context summary</h2>
+        <p className="muted">Recommendation emails are grouped by contexts ticked as Email? in the Contexts section.</p>
+        {contexts.loading ? (
+          <p className="muted">Loading contexts…</p>
+        ) : emailContexts.length > 0 ? (
+          <div className="settings-context-list">
+            {emailContexts.map((context) => (
+              <div key={context.contextId} className="settings-context-row">
+                <span>{context.name}</span>
+                <span className="pill">{context.kind}</span>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="muted">No contexts are currently marked for recommendation emails. Go to Contexts and tick Email? for the contexts you want included.</p>
+        )}
       </div>
 
       <div className="card stack">
@@ -98,7 +108,7 @@ export default function SettingsPage() {
           <label className="checkbox-line"><input type="checkbox" checked={schedule.enabled} onChange={(e) => setSettings((s) => ({ ...s, notificationSchedule: { ...schedule, enabled: e.target.checked } }))} /> Enable scheduled recommendation email</label>
           <label>Time of day<input type="time" value={schedule.timeOfDay} onChange={(e) => setSettings((s) => ({ ...s, notificationSchedule: { ...schedule, timeOfDay: e.target.value } }))} /></label>
           <label>Timezone<input value={schedule.timezone} onChange={(e) => setSettings((s) => ({ ...s, notificationSchedule: { ...schedule, timezone: e.target.value } }))} /></label>
-          <label>Tasks per significant context<input type="number" min={1} max={20} value={schedule.topN} onChange={(e) => setSettings((s) => ({ ...s, notificationSchedule: { ...schedule, topN: Number(e.target.value) } }))} /></label>
+          <label>Tasks per email context<input type="number" min={1} max={20} value={schedule.topN} onChange={(e) => setSettings((s) => ({ ...s, notificationSchedule: { ...schedule, topN: Number(e.target.value) } }))} /></label>
         </div>
         {schedule.nextRunAt && <p className="muted">Next scheduled run: {new Date(schedule.nextRunAt).toLocaleString()}</p>}
         {schedule.lastSentAt && <p className="muted">Last sent: {new Date(schedule.lastSentAt).toLocaleString()}</p>}

@@ -15,6 +15,15 @@ Remove-Item -Recurse -Force .aws-sam -ErrorAction SilentlyContinue
 
 sam build --template-file infra/template.yaml
 
+$parameterOverrides = @(
+  "ParameterKey=CognitoUserPoolId,ParameterValue=$UserPoolId"
+  "ParameterKey=CognitoUserPoolClientId,ParameterValue=$ClientId"
+  "ParameterKey=CognitoRegion,ParameterValue=$Region"
+  "ParameterKey=AllowedOrigins,ParameterValue=$AllowedOrigins"
+  "ParameterKey=SesFromEmail,ParameterValue=$SesFromEmail"
+  "ParameterKey=SesFromName,ParameterValue=`"$SesFromName`""
+)
+
 sam deploy `
   --template-file .\.aws-sam\build\template.yaml `
   --stack-name $StackName `
@@ -22,11 +31,5 @@ sam deploy `
   --capabilities CAPABILITY_IAM `
   --resolve-s3 `
   --profile $Profile `
-  --parameter-overrides `
-    CognitoUserPoolId="$UserPoolId" `
-    CognitoUserPoolClientId="$ClientId" `
-    CognitoRegion="$Region" `
-    AllowedOrigins="$AllowedOrigins" `
-    SesFromEmail="$SesFromEmail" `
-    SesFromName="$SesFromName" `
+  --parameter-overrides $parameterOverrides `
   --no-confirm-changeset
