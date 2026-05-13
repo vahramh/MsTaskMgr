@@ -12,6 +12,14 @@ function isKind(value: unknown): value is ExecutionContextKind {
   return value === "place" || value === "person" || value === "tool" || value === "mode" || value === "energy";
 }
 
+function validateMinutes(value: unknown, fieldName: string): { ok: true; value: number } | { ok: false; message: string } {
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0 || !Number.isInteger(value)) {
+    return { ok: false, message: `${fieldName} must be a non-negative whole number of minutes` };
+  }
+  if (value > 24 * 60) return { ok: false, message: `${fieldName} cannot exceed 1440 minutes` };
+  return { ok: true, value };
+}
+
 export const handler = withHttp(async (
   event: APIGatewayProxyEventV2,
   ctx: HttpHandlerContext
@@ -48,6 +56,16 @@ export const handler = withHttp(async (
     if (body.significant !== undefined) {
       if (typeof body.significant !== "boolean") return badRequest("significant must be boolean", undefined, requestId);
       patch.significant = body.significant;
+    }
+    if ((body as any).weekdayMinutes !== undefined) {
+      const r = validateMinutes((body as any).weekdayMinutes, "weekdayMinutes");
+      if (!r.ok) return badRequest(r.message, undefined, requestId);
+      patch.weekdayMinutes = r.value;
+    }
+    if ((body as any).weekendMinutes !== undefined) {
+      const r = validateMinutes((body as any).weekendMinutes, "weekendMinutes");
+      if (!r.ok) return badRequest(r.message, undefined, requestId);
+      patch.weekendMinutes = r.value;
     }
 
     const context = await updateExecutionContext(sub, contextId, patch);

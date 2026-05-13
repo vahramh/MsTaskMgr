@@ -11,6 +11,8 @@ export default function ExecutionContextsPage() {
   const { items, loading, saving, error, setError, create, update } = useExecutionContexts(tokens);
   const [newName, setNewName] = useState("");
   const [newKind, setNewKind] = useState<ExecutionContextKind>("place");
+  const [newWeekdayMinutes, setNewWeekdayMinutes] = useState("60");
+  const [newWeekendMinutes, setNewWeekendMinutes] = useState("0");
 
   const activeItems = useMemo(() => items.filter((item) => !item.archived), [items]);
   const archivedItems = useMemo(() => items.filter((item) => item.archived), [items]);
@@ -20,7 +22,7 @@ export default function ExecutionContextsPage() {
       <style>{`
         .contexts-create-grid {
           display: grid;
-          grid-template-columns: minmax(240px, 1fr) 180px auto;
+          grid-template-columns: minmax(240px, 1fr) 180px 140px 140px auto;
           gap: 10px;
         }
 
@@ -32,7 +34,7 @@ export default function ExecutionContextsPage() {
         .contexts-row,
         .contexts-header {
           display: grid;
-          grid-template-columns: minmax(260px, 1fr) 180px 76px 96px;
+          grid-template-columns: minmax(240px, 1fr) 160px 130px 130px 76px 96px;
           gap: 10px;
           align-items: center;
         }
@@ -41,6 +43,7 @@ export default function ExecutionContextsPage() {
           padding: 0 2px;
         }
 
+        .contexts-minutes-cell,
         .contexts-email-cell,
         .contexts-archive-cell {
           display: flex;
@@ -75,7 +78,8 @@ export default function ExecutionContextsPage() {
           }
 
           .contexts-name-cell,
-          .contexts-kind-cell {
+          .contexts-kind-cell,
+          .contexts-minutes-cell {
             min-width: 0;
           }
 
@@ -134,12 +138,14 @@ export default function ExecutionContextsPage() {
           <select className="input" value={newKind} onChange={(e) => setNewKind(e.target.value as ExecutionContextKind)}>
             {KINDS.map((kind) => <option key={kind} value={kind}>{kind}</option>)}
           </select>
+          <input className="input" inputMode="numeric" value={newWeekdayMinutes} onChange={(e) => setNewWeekdayMinutes(e.target.value)} placeholder="Weekday min" />
+          <input className="input" inputMode="numeric" value={newWeekendMinutes} onChange={(e) => setNewWeekendMinutes(e.target.value)} placeholder="Weekend min" />
           <button
             type="button"
             className="btn"
             disabled={saving || !newName.trim()}
             onClick={() => {
-              void create(newName.trim(), newKind);
+              void create(newName.trim(), newKind, Math.max(0, Math.floor(Number(newWeekdayMinutes) || 0)), Math.max(0, Math.floor(Number(newWeekendMinutes) || 0)));
               setNewName("");
             }}
           >
@@ -150,7 +156,7 @@ export default function ExecutionContextsPage() {
 
       <div className="card" style={{ padding: 14 }}>
         <div style={{ fontWeight: 700, marginBottom: 4 }}>Active contexts</div>
-        <div className="help" style={{ marginBottom: 10 }}>Tick Email? for contexts that should be included in scheduled recommendation emails.</div>
+        <div className="help" style={{ marginBottom: 10 }}>Tick Email? for contexts that should be included in scheduled recommendation emails. Weekday/weekend minutes define the daily planning budget; email plans use 80% of that time.</div>
         {loading ? <div className="help">Loading…</div> : null}
         {!loading && activeItems.length === 0 ? <div className="help">No contexts yet.</div> : null}
         {activeItems.length > 0 ? (
@@ -158,6 +164,8 @@ export default function ExecutionContextsPage() {
             <div className="help contexts-header">
               <span>Name</span>
               <span>Kind</span>
+              <span style={{ textAlign: "center" }}>Weekday min</span>
+              <span style={{ textAlign: "center" }}>Weekend min</span>
               <span style={{ textAlign: "center" }}>Email?</span>
               <span style={{ textAlign: "center" }}>Archive</span>
             </div>
@@ -172,6 +180,30 @@ export default function ExecutionContextsPage() {
                   <select className="input" value={item.kind} onChange={(e) => void update(item.contextId, { kind: e.target.value as ExecutionContextKind })}>
                     {KINDS.map((kind) => <option key={kind} value={kind}>{kind}</option>)}
                   </select>
+                </div>
+                <div className="contexts-minutes-cell">
+                  <span className="contexts-field-label">Weekday minutes</span>
+                  <input
+                    className="input"
+                    inputMode="numeric"
+                    defaultValue={item.weekdayMinutes ?? 0}
+                    onBlur={(e) => {
+                      const next = Math.max(0, Math.floor(Number(e.target.value) || 0));
+                      if (next !== (item.weekdayMinutes ?? 0)) void update(item.contextId, { weekdayMinutes: next });
+                    }}
+                  />
+                </div>
+                <div className="contexts-minutes-cell">
+                  <span className="contexts-field-label">Weekend minutes</span>
+                  <input
+                    className="input"
+                    inputMode="numeric"
+                    defaultValue={item.weekendMinutes ?? 0}
+                    onBlur={(e) => {
+                      const next = Math.max(0, Math.floor(Number(e.target.value) || 0));
+                      if (next !== (item.weekendMinutes ?? 0)) void update(item.contextId, { weekendMinutes: next });
+                    }}
+                  />
                 </div>
                 <div className="contexts-email-cell">
                   <label className="checkbox-line" title="Include this context in recommendation emails">

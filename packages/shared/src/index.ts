@@ -69,6 +69,10 @@ export type ExecutionContext = {
   archived: boolean;
   /** Whether this context should be included in scheduled recommendation emails. */
   significant?: boolean;
+  /** Typical available execution time for this context on weekdays. */
+  weekdayMinutes?: number;
+  /** Typical available execution time for this context on weekends. */
+  weekendMinutes?: number;
   createdAt: string;
   updatedAt: string;
 };
@@ -107,6 +111,8 @@ export type CreateExecutionContextRequest = {
   name: string;
   kind: ExecutionContextKind;
   sortOrder?: number;
+  weekdayMinutes?: number;
+  weekendMinutes?: number;
 };
 
 export type CreateExecutionContextResponse = {
@@ -119,6 +125,8 @@ export type UpdateExecutionContextRequest = {
   sortOrder?: number;
   archived?: boolean;
   significant?: boolean;
+  weekdayMinutes?: number;
+  weekendMinutes?: number;
 };
 
 export type UpdateExecutionContextResponse = {

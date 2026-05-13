@@ -18,6 +18,15 @@ function isKind(value: unknown): value is ExecutionContextKind {
   return value === "place" || value === "person" || value === "tool" || value === "mode" || value === "energy";
 }
 
+function normalizeMinutes(value: unknown, fieldName: string): { ok: true; value: number } | { ok: false; message: string } {
+  if (value === undefined) return { ok: true, value: 0 };
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0 || !Number.isInteger(value)) {
+    return { ok: false, message: `${fieldName} must be a non-negative whole number of minutes` };
+  }
+  if (value > 24 * 60) return { ok: false, message: `${fieldName} cannot exceed 1440 minutes` };
+  return { ok: true, value };
+}
+
 export const handler = withHttp(async (
   event: APIGatewayProxyEventV2,
   ctx: HttpHandlerContext
@@ -40,6 +49,11 @@ export const handler = withHttp(async (
     if (name.length > 80) return badRequest("name too long (max 80 chars)", undefined, requestId);
     if (!isKind(body.kind)) return badRequest("kind is invalid", undefined, requestId);
 
+    const weekdayMinutes = normalizeMinutes((body as any).weekdayMinutes, "weekdayMinutes");
+    if (!weekdayMinutes.ok) return badRequest(weekdayMinutes.message, undefined, requestId);
+    const weekendMinutes = normalizeMinutes((body as any).weekendMinutes, "weekendMinutes");
+    if (!weekendMinutes.ok) return badRequest(weekendMinutes.message, undefined, requestId);
+
     const now = new Date().toISOString();
     const context = await createExecutionContext(sub, {
       contextId: randomUUID(),
@@ -47,6 +61,8 @@ export const handler = withHttp(async (
       kind: body.kind,
       sortOrder: Number.isFinite(body.sortOrder as number) ? Number(body.sortOrder) : Date.now(),
       archived: false,
+      weekdayMinutes: weekdayMinutes.value,
+      weekendMinutes: weekendMinutes.value,
       createdAt: now,
       updatedAt: now,
     });

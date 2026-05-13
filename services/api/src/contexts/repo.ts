@@ -21,6 +21,8 @@ function toExecutionContext(item: Record<string, any>): ExecutionContext {
     sortOrder: typeof item.sortOrder === "number" ? item.sortOrder : 0,
     archived: Boolean(item.archived),
     significant: Boolean(item.significant),
+    weekdayMinutes: typeof item.weekdayMinutes === "number" ? item.weekdayMinutes : 0,
+    weekendMinutes: typeof item.weekendMinutes === "number" ? item.weekendMinutes : 0,
     createdAt: String(item.createdAt),
     updatedAt: String(item.updatedAt),
   };
@@ -91,6 +93,16 @@ export async function updateExecutionContext(sub: string, contextId: string, pat
     names["#significant"] = "significant";
     values[":significant"] = patch.significant;
     expr.push("#significant = :significant");
+  }
+  if (patch.weekdayMinutes !== undefined) {
+    names["#weekdayMinutes"] = "weekdayMinutes";
+    values[":weekdayMinutes"] = patch.weekdayMinutes;
+    expr.push("#weekdayMinutes = :weekdayMinutes");
+  }
+  if (patch.weekendMinutes !== undefined) {
+    names["#weekendMinutes"] = "weekendMinutes";
+    values[":weekendMinutes"] = patch.weekendMinutes;
+    expr.push("#weekendMinutes = :weekendMinutes");
   }
 
   const r = await ddb.send(new UpdateCommand({

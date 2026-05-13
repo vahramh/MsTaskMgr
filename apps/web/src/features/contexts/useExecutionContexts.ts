@@ -35,12 +35,12 @@ export function useExecutionContexts(tokens: CognitoTokens | null) {
     return () => ac.abort();
   }, [reload]);
 
-  const create = useCallback(async (name: string, kind: ExecutionContextKind) => {
+  const create = useCallback(async (name: string, kind: ExecutionContextKind, weekdayMinutes = 0, weekendMinutes = 0) => {
     if (!tokens) return;
     setSaving(true);
     setError(null);
     try {
-      await createExecutionContext(tokens, { name, kind });
+      await createExecutionContext(tokens, { name, kind, weekdayMinutes, weekendMinutes });
       await reload();
     } catch (e: any) {
       setError(e?.message ?? "Failed to create execution context");
