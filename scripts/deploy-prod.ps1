@@ -5,8 +5,7 @@ param(
   [string]$UserPoolId = "ap-southeast-2_2X2XtKkRA",
   [string]$ClientId = "19qj35nqj8r9lf8nfiefbtl01b",
   [string]$AllowedOrigins = "https://tm.melsoft.com.au,http://localhost:5173,http://127.0.0.1:5173",
-  [string]$SesFromEmail = "",
-  [string]$SesFromName = "Execution Guidance System"
+  [string]$SesFromEmail = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -21,7 +20,6 @@ $parameterOverrides = @(
   "ParameterKey=CognitoRegion,ParameterValue=$Region"
   "ParameterKey=AllowedOrigins,ParameterValue=$AllowedOrigins"
   "ParameterKey=SesFromEmail,ParameterValue=$SesFromEmail"
-  "ParameterKey=SesFromName,ParameterValue=`"$SesFromName`""
 )
 
 sam deploy `

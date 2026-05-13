@@ -40,7 +40,7 @@ Globals:
         TASKS_GSI2: GSI2
         SES_REGION: !Ref AWS::Region
         SES_FROM_EMAIL: !Ref SesFromEmail
-        SES_FROM_NAME: !Ref SesFromName
+        SES_FROM_NAME: "Execution Guidance System"
 
 Resources:
   HttpApiAccessLogs:
