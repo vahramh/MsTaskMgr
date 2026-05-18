@@ -10,11 +10,12 @@ import type {
 } from "../../../../packages/shared/src";
 import type { TaskProjectContext } from "../projects/intelligence";
 import { taskRefKey } from "./hierarchy";
-import { daysFromToday, effortToMinutes, estimatedMinutesForTask, minimumDurationToMinutes, remainingMinutesForTask, timeSpentMinutesForTask } from "./scoring";
+import { daysFromTodayInTimezone, effortToMinutes, estimatedMinutesForTask, minimumDurationToMinutes, remainingMinutesForTask, timeSpentMinutesForTask } from "./scoring";
 
 const MIN_BEST_NEXT_ACTION_SCORE = 35;
 const MAX_REASONS = 3;
 const DEFAULT_MODE: TodayExecutionMode = "all";
+const DEFAULT_TIMEZONE = "Australia/Melbourne";
 
 const MODE_META: Record<TodayExecutionMode, { label: string; description: string }> = {
   all: {
@@ -58,9 +59,17 @@ type DurationProfile = {
   estimatedMinutes: number | null;
 };
 
-function dueContribution(task: TodayTask, now: Date): Contribution[] {
+export function isScheduledForToday(task: TodayTask, now: Date, timezone = DEFAULT_TIMEZONE): boolean {
+  return task.entityType !== "project" && task.state === "scheduled" && !!task.dueDate && daysFromTodayInTimezone(task.dueDate, now, timezone) === 0;
+}
+
+function daysFromTodayForGuidance(dateIso: string, now: Date, timezone: string): number {
+  return daysFromTodayInTimezone(dateIso, now, timezone);
+}
+
+function dueContribution(task: TodayTask, now: Date, timezone: string): Contribution[] {
   if (!task.dueDate) return [];
-  const diff = daysFromToday(task.dueDate, now);
+  const diff = daysFromTodayForGuidance(task.dueDate, now, timezone);
   if (diff < 0) return [{ reason: "Overdue", value: 34 }];
   if (diff === 0) return [{ reason: "Due today", value: 28 }];
   if (diff === 1) return [{ reason: "Due soon", value: 22 }];
@@ -150,10 +159,10 @@ function executionReadinessScore(task: TodayTask, projectContext?: TaskProjectCo
   return score;
 }
 
-function frictionPenalty(task: TodayTask, now: Date, projectContext?: TaskProjectContext): number {
+function frictionPenalty(task: TodayTask, now: Date, timezone: string, projectContext?: TaskProjectContext): number {
   let penalty = 0;
   if (task.state === "scheduled") {
-    const diff = task.dueDate ? daysFromToday(task.dueDate, now) : Number.POSITIVE_INFINITY;
+    const diff = task.dueDate ? daysFromTodayForGuidance(task.dueDate, now, timezone) : Number.POSITIVE_INFINITY;
     if (diff > 0) penalty -= 8;
     if (diff === 0) penalty += 4;
   }
@@ -163,7 +172,7 @@ function frictionPenalty(task: TodayTask, now: Date, projectContext?: TaskProjec
 
   const minimumMinutes = minimumDurationToMinutes(task.minimumDuration);
   const effortMinutes = estimatedMinutesForTask(task);
-  if ((minimumMinutes ?? 0) >= 120 || ((effortMinutes ?? 0) >= 240 && minimumMinutes === null)) {
+  if (!isScheduledForToday(task, now, timezone) && ((minimumMinutes ?? 0) >= 120 || ((effortMinutes ?? 0) >= 240 && minimumMinutes === null))) {
     penalty -= 10;
   }
 
@@ -254,9 +263,9 @@ function leverageScore(task: TodayTask, projectContext?: TaskProjectContext): nu
   return score;
 }
 
-function duePressureScore(task: TodayTask, now: Date): number {
+function duePressureScore(task: TodayTask, now: Date, timezone: string): number {
   if (!task.dueDate) return 0;
-  const diff = daysFromToday(task.dueDate, now);
+  const diff = daysFromTodayForGuidance(task.dueDate, now, timezone);
   if (diff < 0) return 36;
   if (diff === 0) return 28;
   if (diff === 1) return 20;
@@ -270,12 +279,13 @@ function modeContribution(
   task: TodayTask,
   now: Date,
   projectContext: TaskProjectContext | undefined,
-  readiness: TodayRecommendationReadiness
+  readiness: TodayRecommendationReadiness,
+  timezone: string
 ): Contribution[] {
   const profile = durationProfile(task);
   const estimatedMinutes = profile.estimatedMinutes;
   const leverage = leverageScore(task, projectContext);
-  const duePressure = duePressureScore(task, now);
+  const duePressure = duePressureScore(task, now, timezone);
   const friction = activationFrictionScore(task, readiness, projectContext);
   const contributions: Contribution[] = [];
 
@@ -294,7 +304,7 @@ function modeContribution(
     }
     pushIf(friction >= 12, "Low activation friction", 14);
     pushIf(leverage >= 16, "High leverage", 8);
-    pushIf(duePressure >= 20, task.dueDate && daysFromToday(task.dueDate, now) <= 1 ? "Time-sensitive" : "Due soon", 8);
+    pushIf(duePressure >= 20, task.dueDate && daysFromTodayForGuidance(task.dueDate, now, timezone) <= 1 ? "Time-sensitive" : "Due soon", 8);
     return contributions;
   }
 
@@ -334,13 +344,13 @@ function modeContribution(
 
   if (mode === "dueSoon") {
     if (task.dueDate) {
-      const diff = daysFromToday(task.dueDate, now);
+      const diff = daysFromTodayForGuidance(task.dueDate, now, timezone);
       if (diff <= 3) contributions.push({ reason: "Time-sensitive", value: duePressure >= 20 ? 28 : 18 });
       else if (diff <= 7) contributions.push({ reason: "Due soon", value: 8 });
     } else {
       contributions.push({ reason: "Low activation friction", value: -6 });
     }
-    if (task.state === "scheduled" && task.dueDate && daysFromToday(task.dueDate, now) === 0) {
+    if (task.state === "scheduled" && task.dueDate && daysFromTodayForGuidance(task.dueDate, now, timezone) === 0) {
       contributions.push({ reason: "Scheduled for today", value: 12 });
     }
     if ((estimatedMinutes ?? 0) > 120) contributions.push({ reason: "Deep work block", value: -6 });
@@ -390,6 +400,7 @@ function buildExplanation(mode: TodayExecutionMode, reasons: TodayReasonChip[]):
 }
 
 function sortRanked(
+  timezone: string,
   a: { recommendation: TodayRecommendation; canBeBest: boolean },
   b: { recommendation: TodayRecommendation; canBeBest: boolean },
   now: Date
@@ -401,8 +412,8 @@ function sortRanked(
   const aBlock = minimumDurationToMinutes(a.recommendation.task.minimumDuration) ?? Number.MAX_SAFE_INTEGER;
   const bBlock = minimumDurationToMinutes(b.recommendation.task.minimumDuration) ?? Number.MAX_SAFE_INTEGER;
   if (aBlock !== bBlock) return aBlock - bBlock;
-  const aDue = a.recommendation.task.dueDate ? daysFromToday(a.recommendation.task.dueDate, now) : Number.POSITIVE_INFINITY;
-  const bDue = b.recommendation.task.dueDate ? daysFromToday(b.recommendation.task.dueDate, now) : Number.POSITIVE_INFINITY;
+  const aDue = a.recommendation.task.dueDate ? daysFromTodayForGuidance(a.recommendation.task.dueDate, now, timezone) : Number.POSITIVE_INFINITY;
+  const bDue = b.recommendation.task.dueDate ? daysFromTodayForGuidance(b.recommendation.task.dueDate, now, timezone) : Number.POSITIVE_INFINITY;
   if (aDue !== bDue) return aDue - bDue;
   return a.recommendation.task.title.localeCompare(b.recommendation.task.title);
 }
@@ -411,12 +422,13 @@ export function scoreBestNextActionCandidate(
   task: TodayTask,
   now: Date,
   mode: TodayExecutionMode,
-  projectContext?: TaskProjectContext
+  projectContext?: TaskProjectContext,
+  timezone = DEFAULT_TIMEZONE
 ): CandidateBreakdown {
   const baseContributions: Contribution[] = [];
   let score = executionReadinessScore(task, projectContext);
 
-  const due = dueContribution(task, now);
+  const due = dueContribution(task, now, timezone);
   baseContributions.push(...due);
   score += due.reduce((sum, item) => sum + item.value, 0);
 
@@ -448,15 +460,15 @@ export function scoreBestNextActionCandidate(
     score += 8;
   }
 
-  if (task.state === "scheduled" && task.dueDate && daysFromToday(task.dueDate, now) === 0) {
-    baseContributions.push({ reason: "Scheduled for today", value: 6 });
-    score += 6;
+  if (isScheduledForToday(task, now, timezone)) {
+    baseContributions.push({ reason: "Scheduled for today", value: 80 });
+    score += 80;
   }
 
-  score += frictionPenalty(task, now, projectContext);
+  score += frictionPenalty(task, now, timezone, projectContext);
 
   const readiness = inferReadiness(projectContext, task);
-  const modeContributions = modeContribution(mode, task, now, projectContext, readiness);
+  const modeContributions = modeContribution(mode, task, now, projectContext, readiness, timezone);
   score += modeContributions.reduce((sum, item) => sum + item.value, 0);
 
   const reasons = [...baseContributions, ...modeContributions]
@@ -475,17 +487,51 @@ export function scoreBestNextActionCandidate(
   };
 }
 
+export function buildScheduledCommitments(
+  tasks: TodayTask[],
+  now: Date,
+  projectContextByKey: Map<string, TaskProjectContext>,
+  timezone = DEFAULT_TIMEZONE
+): TodayRecommendation[] {
+  return tasks
+    .filter((task) => isScheduledForToday(task, now, timezone))
+    .map((task) => {
+      const context = projectContextByKey.get(taskRefKey(task));
+      const readiness = inferReadiness(context, task);
+      const minutes = remainingMinutesForTask(task) ?? minimumDurationToMinutes(task.minimumDuration) ?? estimatedMinutesForTask(task) ?? 0;
+      const priority = priorityRank(task.priority);
+      const score = 1000 + priority * 10 + Math.min(240, Math.max(0, minutes));
+      return buildRecommendation(
+        task,
+        score,
+        ["Scheduled for today"],
+        "This is scheduled for today, so it is treated as a commitment before discretionary recommendations.",
+        inferExecutionFit(task),
+        readiness,
+        context
+      );
+    })
+    .sort((a, b) => {
+      const aMinutes = remainingMinutesForTask(a.task) ?? minimumDurationToMinutes(a.task.minimumDuration) ?? Number.MAX_SAFE_INTEGER;
+      const bMinutes = remainingMinutesForTask(b.task) ?? minimumDurationToMinutes(b.task.minimumDuration) ?? Number.MAX_SAFE_INTEGER;
+      if (aMinutes !== bMinutes) return bMinutes - aMinutes;
+      if (b.score !== a.score) return b.score - a.score;
+      return a.task.title.localeCompare(b.task.title);
+    });
+}
+
 function buildRecommendationsForMode(
   tasks: TodayTask[],
   now: Date,
   mode: TodayExecutionMode,
-  projectContextByKey: Map<string, TaskProjectContext>
+  projectContextByKey: Map<string, TaskProjectContext>,
+  timezone = DEFAULT_TIMEZONE
 ): TodayModeRecommendations {
   const ranked = tasks
     .filter(isEligible)
     .map((task) => {
       const context = projectContextByKey.get(taskRefKey(task));
-      const breakdown = scoreBestNextActionCandidate(task, now, mode, context);
+      const breakdown = scoreBestNextActionCandidate(task, now, mode, context, timezone);
       return {
         recommendation: buildRecommendation(
           task,
@@ -499,7 +545,7 @@ function buildRecommendationsForMode(
         canBeBest: canBeBestNextAction(task, context),
       };
     })
-    .sort((a, b) => sortRanked(a, b, now));
+    .sort((a, b) => sortRanked(timezone, a, b, now));
 
   const rankedRecommendations = ranked.map((item) => item.recommendation);
   const bestNextActionCandidate = ranked.find((item) => item.canBeBest && item.recommendation.score >= MIN_BEST_NEXT_ACTION_SCORE);
@@ -520,7 +566,8 @@ function buildRecommendationsForMode(
 export function buildTodayRecommendations(
   tasks: TodayTask[],
   now: Date,
-  projectContextByKey: Map<string, TaskProjectContext>
+  projectContextByKey: Map<string, TaskProjectContext>,
+  timezone = DEFAULT_TIMEZONE
 ): {
   defaultMode: TodayExecutionMode;
   bestNextAction: TodayRecommendation | null;
@@ -528,11 +575,11 @@ export function buildTodayRecommendations(
   recommendationModes: Record<TodayExecutionMode, TodayModeRecommendations>;
 } {
   const recommendationModes: Record<TodayExecutionMode, TodayModeRecommendations> = {
-    all: buildRecommendationsForMode(tasks, now, "all", projectContextByKey),
-    quickWins: buildRecommendationsForMode(tasks, now, "quickWins", projectContextByKey),
-    mediumBlock: buildRecommendationsForMode(tasks, now, "mediumBlock", projectContextByKey),
-    deepWork: buildRecommendationsForMode(tasks, now, "deepWork", projectContextByKey),
-    dueSoon: buildRecommendationsForMode(tasks, now, "dueSoon", projectContextByKey),
+    all: buildRecommendationsForMode(tasks, now, "all", projectContextByKey, timezone),
+    quickWins: buildRecommendationsForMode(tasks, now, "quickWins", projectContextByKey, timezone),
+    mediumBlock: buildRecommendationsForMode(tasks, now, "mediumBlock", projectContextByKey, timezone),
+    deepWork: buildRecommendationsForMode(tasks, now, "deepWork", projectContextByKey, timezone),
+    dueSoon: buildRecommendationsForMode(tasks, now, "dueSoon", projectContextByKey, timezone),
   };
 
   const defaultModeResult = recommendationModes[DEFAULT_MODE];

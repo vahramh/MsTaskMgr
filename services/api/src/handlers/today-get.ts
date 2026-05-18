@@ -4,6 +4,7 @@ import { internalError, ok, unauthorized } from "../lib/http";
 import { withHttp } from "../lib/handler";
 import type { HttpHandlerContext } from "../lib/handler";
 import { log, toErrorInfo } from "../lib/log";
+import { getRawSettings } from "../settings/repo";
 import { buildTodayOverview } from "../today/overview";
 
 function parseIncludeShared(raw: string | undefined): boolean {
@@ -13,6 +14,12 @@ function parseIncludeShared(raw: string | undefined): boolean {
 function parseBoolean(raw: string | undefined, defaultValue: boolean): boolean {
   if (raw === undefined) return defaultValue;
   return raw === "1" || raw === "true" || raw === "yes";
+}
+
+
+function timezoneFromRawSettings(raw: Record<string, any> | null): string {
+  const timezone = raw?.notificationSchedule?.timezone;
+  return typeof timezone === "string" && timezone.trim() ? timezone.trim() : "Australia/Melbourne";
 }
 
 function parseContextIds(raw: string | undefined): string[] | undefined {
@@ -35,7 +42,9 @@ export const handler = withHttp(async (
   const now = new Date();
 
   try {
-    const resp = await buildTodayOverview(sub, includeShared, now, activeContextIds, includeNoContext);
+    const rawSettings = await getRawSettings(sub);
+    const timezone = timezoneFromRawSettings(rawSettings);
+    const resp = await buildTodayOverview(sub, includeShared, now, activeContextIds, includeNoContext, timezone);
     return ok(resp, requestId);
   } catch (e: any) {
     log("error", "today.get_failed", { requestId, sub, includeShared, activeContextIds, includeNoContext, error: toErrorInfo(e) });

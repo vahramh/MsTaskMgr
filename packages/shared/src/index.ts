@@ -614,6 +614,7 @@ export type TodayOverviewResponse = {
   executionMetrics: TodayExecutionMetrics;
   bestNextAction: TodayRecommendation | null;
   fallbackRecommendation: TodayFallbackRecommendation | null;
+  scheduledCommitments: TodayRecommendation[];
   attentionItems: TodayAttentionItem[];
   recommended: TodayRecommendation[];
   recommendationModes: Record<TodayExecutionMode, TodayModeRecommendations>;

@@ -8,8 +8,11 @@ import { esc, sendSesEmail } from "./ses";
 type Allocation = { recommendation: TodayRecommendation; minutes: number };
 type Group = {
   contextName: string;
+  committedMinutes: number;
   plannedMinutes: number;
   planningBudgetMinutes: number;
+  flexibleBudgetMinutes: number;
+  scheduledCommitments: TodayRecommendation[];
   recommendations: TodayRecommendation[];
   allocations: Allocation[];
 };
@@ -24,18 +27,35 @@ function taskLine(r: TodayRecommendation): string {
   return `${t.title}${bits ? ` (${bits})` : ""}`;
 }
 
-function isWeekend(now: Date): boolean {
-  const day = now.getDay();
-  return day === 0 || day === 6;
+function timezoneFromRawSettings(raw: Record<string, any> | null): string {
+  const timezone = raw?.notificationSchedule?.timezone;
+  return typeof timezone === "string" && timezone.trim() ? timezone.trim() : "Australia/Melbourne";
 }
 
-function baseMinutesForContext(context: ExecutionContext, now: Date): number {
-  const raw = isWeekend(now) ? context.weekendMinutes : context.weekdayMinutes;
+function dateLabelForTimezone(date: Date, timezone: string): string {
+  return new Intl.DateTimeFormat("en-AU", {
+    timeZone: timezone,
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  }).format(date);
+}
+
+function isWeekend(now: Date, timezone: string): boolean {
+  const weekday = new Intl.DateTimeFormat("en-US", {
+    timeZone: timezone,
+    weekday: "short",
+  }).format(now);
+  return weekday === "Sat" || weekday === "Sun";
+}
+
+function baseMinutesForContext(context: ExecutionContext, now: Date, timezone: string): number {
+  const raw = isWeekend(now, timezone) ? context.weekendMinutes : context.weekdayMinutes;
   return Math.max(0, Math.floor(typeof raw === "number" && Number.isFinite(raw) ? raw : 0));
 }
 
-function allocationBudgetForContext(context: ExecutionContext, now: Date): number {
-  return Math.floor(baseMinutesForContext(context, now) * PLANNING_UTILISATION);
+function allocationBudgetForContext(context: ExecutionContext, now: Date, timezone: string): number {
+  return Math.floor(baseMinutesForContext(context, now, timezone) * PLANNING_UTILISATION);
 }
 
 function uniqueRecommendations(items: TodayRecommendation[]): TodayRecommendation[] {
@@ -48,6 +68,11 @@ function uniqueRecommendations(items: TodayRecommendation[]): TodayRecommendatio
     result.push(item);
   }
   return result;
+}
+
+function plannedMinutesForTask(recommendation: TodayRecommendation): number {
+  const task = recommendation.task;
+  return remainingMinutesForTask(task) ?? minimumDurationToMinutes(task.minimumDuration) ?? DEFAULT_ALLOCATION_MINUTES;
 }
 
 function allocateExecutionPlan(recommendations: TodayRecommendation[], budgetMinutes: number): Allocation[] {
@@ -81,17 +106,38 @@ function formatMinutes(minutes: number): string {
   return rem ? `${hours}h ${rem}m` : `${hours}h`;
 }
 
+function renderTaskHtml(r: TodayRecommendation): string {
+  return `<strong>${esc(r.task.title)}</strong>${r.project?.title ? `<br><span>Project: ${esc(r.project.title)}</span>` : ""}${r.task.dueDate ? `<br><span>Due: ${esc(r.task.dueDate)}</span>` : ""}${r.task.priority ? `<br><span>Priority: P${r.task.priority}</span>` : ""}`;
+}
+
 function render(groups: Group[]) {
   const text = groups.map((g) => {
+    const commitments = g.scheduledCommitments.length
+      ? [
+          `Today's commitments (${formatMinutes(g.committedMinutes)}):`,
+          ...g.scheduledCommitments.map((r, i) => `${i + 1}. ${formatMinutes(plannedMinutesForTask(r))} — ${taskLine(r)}`),
+        ]
+      : ["Today's commitments: None scheduled for this context."];
+
     const plan = g.allocations.length
       ? [
-          `Suggested execution plan (${formatMinutes(g.plannedMinutes)} of ${formatMinutes(g.planningBudgetMinutes)} planning budget):`,
+          `Suggested flexible execution plan (${formatMinutes(g.plannedMinutes)} of ${formatMinutes(g.flexibleBudgetMinutes)} remaining flexible budget; ${formatMinutes(g.planningBudgetMinutes)} original planning budget):`,
           ...g.allocations.map((a, i) => `${i + 1}. ${formatMinutes(a.minutes)} — ${taskLine(a.recommendation)}`),
         ]
-      : [`Suggested execution plan: No allocation. ${g.planningBudgetMinutes <= 0 ? "No time budget configured for this context today." : "No matching task fits the available budget."}`];
+      : [
+          `Suggested flexible execution plan: No allocation. ${
+            g.planningBudgetMinutes <= 0
+              ? "No time budget configured for this context today."
+              : g.flexibleBudgetMinutes <= 0
+                ? "Today's scheduled commitments consume the available planning budget."
+                : "No matching task fits the available flexible budget."
+          }`,
+        ];
 
     return [
       `${g.contextName}:`,
+      ...commitments,
+      "",
       ...plan,
       "",
       "Top recommendations:",
@@ -100,7 +146,7 @@ function render(groups: Group[]) {
     ].join("\n");
   }).join("\n");
 
-  const html = `<div style="font-family:Arial,sans-serif;line-height:1.45"><h2>Execution Guidance recommendations</h2>${groups.map((g) => `<h3>${esc(g.contextName)}</h3><h4>Suggested execution plan</h4>${g.allocations.length ? `<p style="color:#555">${esc(formatMinutes(g.plannedMinutes))} allocated from ${esc(formatMinutes(g.planningBudgetMinutes))} planning budget.</p><ol>${g.allocations.map((a) => `<li><strong>${esc(formatMinutes(a.minutes))}</strong> — ${esc(a.recommendation.task.title)}${a.recommendation.project?.title ? `<br><span>Project: ${esc(a.recommendation.project.title)}</span>` : ""}${a.recommendation.task.dueDate ? `<br><span>Due: ${esc(a.recommendation.task.dueDate)}</span>` : ""}${a.recommendation.task.priority ? `<br><span>Priority: P${a.recommendation.task.priority}</span>` : ""}</li>`).join("")}</ol>` : `<p>${g.planningBudgetMinutes <= 0 ? "No time budget configured for this context today." : "No matching task fits the available budget."}</p>`}<h4>Top recommendations</h4>${g.recommendations.length ? `<ol>${g.recommendations.map((r) => `<li><strong>${esc(r.task.title)}</strong>${r.project?.title ? `<br><span>Project: ${esc(r.project.title)}</span>` : ""}${r.task.dueDate ? `<br><span>Due: ${esc(r.task.dueDate)}</span>` : ""}${r.task.priority ? `<br><span>Priority: P${r.task.priority}</span>` : ""}</li>`).join("")}</ol>` : `<p>No matching recommended tasks.</p>`}`).join("")}<p style="color:#666;font-size:12px">Execution plan uses 80% of the configured weekday/weekend context budget. Generated by Execution Guidance System.</p></div>`;
+  const html = `<div style="font-family:Arial,sans-serif;line-height:1.45"><h2>Execution Guidance recommendations</h2>${groups.map((g) => `<h3>${esc(g.contextName)}</h3><h4>Today's commitments</h4>${g.scheduledCommitments.length ? `<p style="color:#555">${esc(formatMinutes(g.committedMinutes))} scheduled for this context today.</p><ol>${g.scheduledCommitments.map((r) => `<li><strong>${esc(formatMinutes(plannedMinutesForTask(r)))}</strong> — ${renderTaskHtml(r)}</li>`).join("")}</ol>` : `<p>None scheduled for this context.</p>`}<h4>Suggested flexible execution plan</h4>${g.allocations.length ? `<p style="color:#555">${esc(formatMinutes(g.plannedMinutes))} allocated from ${esc(formatMinutes(g.flexibleBudgetMinutes))} remaining flexible budget. Original planning budget: ${esc(formatMinutes(g.planningBudgetMinutes))}; scheduled commitments: ${esc(formatMinutes(g.committedMinutes))}.</p><ol>${g.allocations.map((a) => `<li><strong>${esc(formatMinutes(a.minutes))}</strong> — ${renderTaskHtml(a.recommendation)}</li>`).join("")}</ol>` : `<p>${g.planningBudgetMinutes <= 0 ? "No time budget configured for this context today." : g.flexibleBudgetMinutes <= 0 ? "Today's scheduled commitments consume the available planning budget." : "No matching task fits the available flexible budget."}</p>`}<h4>Top recommendations</h4>${g.recommendations.length ? `<ol>${g.recommendations.map((r) => `<li>${renderTaskHtml(r)}</li>`).join("")}</ol>` : `<p>No matching recommended tasks.</p>`}`).join("")}<p style="color:#666;font-size:12px">Execution plan uses 80% of the configured weekday/weekend context budget. Scheduled commitments are shown first and consume planning budget before discretionary recommendations. Generated by Execution Guidance System.</p></div>`;
   return { text, html };
 }
 
@@ -109,26 +155,40 @@ export async function sendRecommendationsEmailForUser(sub: string, now = new Dat
   const notificationEmail = typeof raw?.notificationEmail === "string" ? raw.notificationEmail.trim() : "";
   if (!notificationEmail) return { sent: false, message: "Notification email address is not configured." };
 
+  const timezone = timezoneFromRawSettings(raw);
   const topN = Math.max(1, Math.min(20, Number(raw?.notificationSchedule?.topN || 5)));
   const significant = contexts.filter((c) => c.significant && !c.archived);
   if (!significant.length) return { sent: false, message: "No significant execution contexts are selected." };
 
   const groups: Group[] = [];
   for (const context of significant) {
-    const overview = await buildTodayOverview(sub, false, now, [context.contextId], false);
+    const overview = await buildTodayOverview(sub, false, now, [context.contextId], false, timezone);
+    const scheduledCommitments = uniqueRecommendations(overview.scheduledCommitments);
+    const scheduledIds = new Set(scheduledCommitments.map((item) => item.task.taskId));
     const recommendations = uniqueRecommendations([
-      ...(overview.bestNextAction ? [overview.bestNextAction] : []),
+      ...(overview.bestNextAction && !scheduledIds.has(overview.bestNextAction.task.taskId) ? [overview.bestNextAction] : []),
       ...overview.recommended,
-    ]).slice(0, topN);
+    ]).filter((item) => !scheduledIds.has(item.task.taskId)).slice(0, topN);
 
-    const planningBudgetMinutes = allocationBudgetForContext(context, now);
-    const allocations = allocateExecutionPlan(recommendations, planningBudgetMinutes);
+    const planningBudgetMinutes = allocationBudgetForContext(context, now, timezone);
+    const committedMinutes = scheduledCommitments.reduce((sum, item) => sum + plannedMinutesForTask(item), 0);
+    const flexibleBudgetMinutes = Math.max(0, planningBudgetMinutes - committedMinutes);
+    const allocations = allocateExecutionPlan(recommendations, flexibleBudgetMinutes);
     const plannedMinutes = allocations.reduce((sum, item) => sum + item.minutes, 0);
 
-    groups.push({ contextName: context.name, planningBudgetMinutes, plannedMinutes, recommendations, allocations });
+    groups.push({
+      contextName: context.name,
+      planningBudgetMinutes,
+      committedMinutes,
+      flexibleBudgetMinutes,
+      plannedMinutes,
+      scheduledCommitments,
+      recommendations,
+      allocations,
+    });
   }
   const { html, text } = render(groups);
-  await sendSesEmail(notificationEmail, `EGS recommendations - ${now.toLocaleDateString("en-AU")}`, html, text);
+  await sendSesEmail(notificationEmail, `EGS recommendations - ${dateLabelForTimezone(now, timezone)}`, html, text);
   await markSent(sub, now);
   return { sent: true, message: "Recommendation email sent.", sentAt: now.toISOString() };
 }

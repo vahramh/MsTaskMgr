@@ -77,9 +77,50 @@ function daysBetween(from: Date, to: Date): number {
   return Math.floor((to.getTime() - from.getTime()) / 86400000);
 }
 
+function dateKeyFromParts(parts: Intl.DateTimeFormatPart[]): string {
+  const year = parts.find((part) => part.type === "year")?.value;
+  const month = parts.find((part) => part.type === "month")?.value;
+  const day = parts.find((part) => part.type === "day")?.value;
+  if (!year || !month || !day) return "";
+  return `${year}-${month.padStart(2, "0")}-${day.padStart(2, "0")}`;
+}
+
+function dateKeyInTimezone(date: Date, timezone: string): string {
+  return dateKeyFromParts(new Intl.DateTimeFormat("en-CA", {
+    timeZone: timezone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(date));
+}
+
+function dateKeyToUtcNoon(key: string): Date | null {
+  const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(key);
+  if (!match) return null;
+  return new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3]), 12));
+}
+
+function dateIsoToDateKey(dateIso: string, timezone?: string): string {
+  const dateOnly = /^(\d{4}-\d{2}-\d{2})/.exec(dateIso)?.[1];
+  if (dateOnly) return dateOnly;
+  if (!timezone) return "";
+  const parsed = new Date(dateIso);
+  if (Number.isNaN(parsed.getTime())) return "";
+  return dateKeyInTimezone(parsed, timezone);
+}
+
 export function daysFromToday(dateIso: string, now: Date): number {
   const due = startOfDay(new Date(dateIso));
   const today = startOfDay(now);
+  return daysBetween(today, due);
+}
+
+export function daysFromTodayInTimezone(dateIso: string, now: Date, timezone: string): number {
+  const todayKey = dateKeyInTimezone(now, timezone);
+  const dueKey = dateIsoToDateKey(dateIso, timezone);
+  const today = dateKeyToUtcNoon(todayKey);
+  const due = dateKeyToUtcNoon(dueKey);
+  if (!today || !due) return daysFromToday(dateIso, now);
   return daysBetween(today, due);
 }
 

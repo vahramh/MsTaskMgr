@@ -11,6 +11,7 @@ import { executionModeLabel, hasAnyGuidedActions, hasAnyProjectHealthIssues } fr
 import BestNextActionCard from "./BestNextActionCard";
 import AttentionPanel from "./AttentionPanel";
 import RecommendedTasksSection from "./RecommendedTasksSection";
+import ScheduledCommitmentsSection from "./ScheduledCommitmentsSection";
 import GuidedActionsPanel from "./GuidedActionsPanel";
 import ProjectHeatStrip from "./ProjectHeatStrip";
 import ProjectHealthPanel from "./ProjectHealthPanel";
@@ -216,6 +217,7 @@ export default function TodayPage() {
     data &&
     modeData &&
     !modeData.bestNextAction &&
+    (data.scheduledCommitments?.length ?? 0) === 0 &&
     modeData.recommended.length === 0 &&
     !hasAnyGuidedActions(data.guidedActions) &&
     !hasAnyProjectHealthIssues(data.projectHealth);
@@ -303,8 +305,16 @@ export default function TodayPage() {
 
       {!loading && data && modeData ? (
         <>
+          <ScheduledCommitmentsSection
+            items={data.scheduledCommitments ?? []}
+            onOpenTask={openTask}
+            onOpenProject={openProject}
+            onQuickAction={handleQuickAction}
+            pendingTaskId={pendingTaskId}
+          />
+
           <BestNextActionCard
-            item={modeData.bestNextAction}
+            item={data.bestNextAction ?? modeData.bestNextAction}
             fallback={data.fallbackRecommendation}
             mode={mode}
             modeDescription={modeData.description}
