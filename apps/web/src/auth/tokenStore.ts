@@ -10,22 +10,63 @@ export type CognitoTokens = {
 
 const KEY = "mstaskmgr_tokens_v1";
 
+function canUseStorage(storage: Storage): boolean {
+  try {
+    const testKey = `${KEY}_storage_test`;
+    storage.setItem(testKey, "1");
+    storage.removeItem(testKey);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function preferredStorage(): Storage | null {
+  if (typeof window === "undefined") return null;
+  if (canUseStorage(window.localStorage)) return window.localStorage;
+  if (canUseStorage(window.sessionStorage)) return window.sessionStorage;
+  return null;
+}
+
 export function saveTokens(tokens: CognitoTokens) {
-  sessionStorage.setItem(KEY, JSON.stringify(tokens));
+  const storage = preferredStorage();
+  if (!storage) return;
+
+  storage.setItem(KEY, JSON.stringify(tokens));
+
+  // Remove the old session-only copy after migrating to persistent storage.
+  if (storage !== window.sessionStorage) {
+    window.sessionStorage.removeItem(KEY);
+  }
 }
 
 export function loadTokens(): CognitoTokens | null {
-  const raw = sessionStorage.getItem(KEY);
+  if (typeof window === "undefined") return null;
+
+  const raw = window.localStorage.getItem(KEY) ?? window.sessionStorage.getItem(KEY);
   if (!raw) return null;
+
   try {
-    return JSON.parse(raw) as CognitoTokens;
+    const tokens = JSON.parse(raw) as CognitoTokens;
+
+    // If this came from the older sessionStorage-only implementation, persist it
+    // so installed mobile/PWA capture remains signed in after reopening.
+    if (!window.localStorage.getItem(KEY) && canUseStorage(window.localStorage)) {
+      window.localStorage.setItem(KEY, JSON.stringify(tokens));
+      window.sessionStorage.removeItem(KEY);
+    }
+
+    return tokens;
   } catch {
+    clearTokens();
     return null;
   }
 }
 
 export function clearTokens() {
-  sessionStorage.removeItem(KEY);
+  if (typeof window === "undefined") return;
+  window.localStorage.removeItem(KEY);
+  window.sessionStorage.removeItem(KEY);
 }
 
 export function isExpired(tokens: CognitoTokens, skewSeconds = 30): boolean {

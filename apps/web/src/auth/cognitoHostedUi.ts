@@ -12,17 +12,37 @@ const cfg = {
 
 const PKCE_VERIFIER_KEY = "mstaskmgr_pkce_verifier";
 const OAUTH_STATE_KEY = "mstaskmgr_oauth_state";
+const LOGIN_RETURN_TO_KEY = "mstaskmgr_login_return_to";
+
+function safeReturnTo(value?: string): string | null {
+  if (!value) return null;
+  if (!value.startsWith("/")) return null;
+  if (value.startsWith("//")) return null;
+  return value;
+}
+
+export function getLoginReturnTo(): string | null {
+  const value = sessionStorage.getItem(LOGIN_RETURN_TO_KEY);
+  sessionStorage.removeItem(LOGIN_RETURN_TO_KEY);
+  return safeReturnTo(value ?? undefined);
+}
 
 /**
  * Kick off Hosted UI login (Authorization Code + PKCE)
  */
-export async function startLogin() {
+export async function startLogin(options?: { returnTo?: string }) {
   const verifier = randomString(64);
   const challenge = await pkceChallengeFromVerifier(verifier);
   const state = randomString(32);
+  const returnTo = safeReturnTo(options?.returnTo);
 
   sessionStorage.setItem(PKCE_VERIFIER_KEY, verifier);
   sessionStorage.setItem(OAUTH_STATE_KEY, state);
+  if (returnTo) {
+    sessionStorage.setItem(LOGIN_RETURN_TO_KEY, returnTo);
+  } else {
+    sessionStorage.removeItem(LOGIN_RETURN_TO_KEY);
+  }
 
   const params = new URLSearchParams({
     response_type: "code",

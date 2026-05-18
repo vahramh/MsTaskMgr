@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { handleCallback } from "./cognitoHostedUi";
+import { getLoginReturnTo, handleCallback } from "./cognitoHostedUi";
 import { useAuth } from "./AuthContext";
 
 export default function AuthCallback() {
@@ -39,7 +39,7 @@ export default function AuthCallback() {
         if (!code || !state) {
           // If tokens are already present, just go home.
           setStatus("Finishing sign-in…");
-          navigate("/", { replace: true });
+          navigate(getLoginReturnTo() ?? "/", { replace: true });
           return;
         }
 
@@ -50,7 +50,7 @@ export default function AuthCallback() {
         // Clean URL after successful exchange
         window.history.replaceState({}, document.title, url.pathname);
 
-        navigate("/", { replace: true });
+        navigate(getLoginReturnTo() ?? "/", { replace: true });
       } catch (e: any) {
         setError(e?.message ?? String(e));
       }

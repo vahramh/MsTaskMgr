@@ -5,6 +5,7 @@ import Home from "./pages/Home";
 import AppShell from "./pages/AppShell";
 import ProtectedRoute from "./auth/ProtectedRoute";
 import HelpPage from "./features/help/HelpPage";
+import CapturePage from "./pages/CapturePage";
 
 export default function App() {
   return (
@@ -13,6 +14,14 @@ export default function App() {
       <Route path="/" element={<Home />} />
       <Route path="/signin" element={<Home />} />
       <Route path="/help" element={<HelpPage />} />
+      <Route
+        path="/capture"
+        element={
+          <ProtectedRoute>
+            <CapturePage />
+          </ProtectedRoute>
+        }
+      />
       <Route
         path="/app/*"
         element={
