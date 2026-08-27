@@ -35,6 +35,24 @@ export type TaskTreeProps = {
   onOpenProject?: (projectId: string) => void;
 };
 
+function branchContainsState(
+  taskId: string,
+  state: WorkflowState,
+  subtrees: Record<string, SubtreeState>,
+  deriveState: (task: Task) => WorkflowState,
+  visited: Set<string> = new Set()
+): boolean {
+  if (visited.has(taskId)) return false;
+  visited.add(taskId);
+
+  for (const child of subtrees[taskId]?.items ?? []) {
+    if (deriveState(child) === state) return true;
+    if (branchContainsState(child.taskId, state, subtrees, deriveState, visited)) return true;
+  }
+
+  return false;
+}
+
 export function TaskTree(props: TaskTreeProps) {
   return <TaskTreeNode {...props} parentTaskId={props.parentTaskId} depth={props.depth} filterState={props.filterState ?? "all"} />;
 }
@@ -44,7 +62,10 @@ function TaskTreeNode({ parentTaskId, depth, filterState = "all", ...props }: Ta
   const paddingLeft = Math.min(depth * 18, 72);
   const filteredItems = filterState === "all"
     ? subtree.items
-    : subtree.items.filter((item) => props.presentation.deriveState(item) === filterState);
+    : subtree.items.filter((item) =>
+        props.presentation.deriveState(item) === filterState ||
+        branchContainsState(item.taskId, filterState, props.subtrees, props.presentation.deriveState)
+      );
 
   return (
     <div className="tree-wrap" style={{ marginTop: 10, paddingLeft }}>
@@ -116,6 +137,9 @@ function TaskTreeNode({ parentTaskId, depth, filterState = "all", ...props }: Ta
               const pending = props.taskSurface.pendingFor(task);
               const isEditing = props.taskSurface.editor?.taskId === task.taskId;
               const expandedHere = props.isExpanded(task.taskId);
+              const hasMatchingDescendant = filterState !== "all" &&
+                branchContainsState(task.taskId, filterState, props.subtrees, props.presentation.deriveState);
+              const showChildren = expandedHere || hasMatchingDescendant;
 
               return (
                 <div key={task.taskId} className="tree-wrap" style={{ paddingLeft: 14 }}>
@@ -149,7 +173,7 @@ function TaskTreeNode({ parentTaskId, depth, filterState = "all", ...props }: Ta
                             deriveState={props.presentation.deriveState}
                             deriveEntityType={props.presentation.deriveEntityType}
                             renderStateBadge={props.presentation.renderTaskStateBadge}
-                            expanded={expandedHere}
+                            expanded={showChildren}
                             onToggleExpand={() => void props.toggleExpand(task.taskId)}
                             expandLabel=""
                             contexts={props.contexts}
@@ -176,7 +200,7 @@ function TaskTreeNode({ parentTaskId, depth, filterState = "all", ...props }: Ta
                       />
                     </div>
 
-                    {expandedHere ? <TaskTreeNode {...props} parentTaskId={task.taskId} depth={depth + 1} filterState="all" /> : null}
+                    {showChildren ? <TaskTreeNode {...props} parentTaskId={task.taskId} depth={depth + 1} filterState={filterState} /> : null}
                   </div>
                 </div>
               );

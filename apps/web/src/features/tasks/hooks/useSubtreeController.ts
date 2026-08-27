@@ -206,6 +206,34 @@ export function useSubtreeController({ tokens, clearAllErrors, refreshExecutionM
     [tokens, getSubtree, clearAllErrors, setSubtreesSync]
   );
 
+
+  const loadDescendants = useCallback(
+    async (rootTaskId: string, force: boolean = false) => {
+      if (!tokens) return;
+
+      const queue: string[] = [rootTaskId];
+      const seen = new Set<string>();
+
+      while (queue.length > 0) {
+        const parentTaskId = queue.shift()!;
+        if (seen.has(parentTaskId)) continue;
+        seen.add(parentTaskId);
+
+        await loadChildren(parentTaskId, force);
+
+        // Project filtering and counts need the complete child list, not just page 1.
+        while (getSubtree(parentTaskId).nextToken) {
+          await loadMoreChildren(parentTaskId);
+        }
+
+        for (const child of getSubtree(parentTaskId).items) {
+          if (!seen.has(child.taskId)) queue.push(child.taskId);
+        }
+      }
+    },
+    [tokens, loadChildren, loadMoreChildren, getSubtree]
+  );
+
   const toggleExpand = useCallback(
     async (taskId: string) => {
       const on = !isExpanded(taskId);
@@ -454,6 +482,7 @@ export function useSubtreeController({ tokens, clearAllErrors, refreshExecutionM
     setExpandedOn,
     loadChildren,
     loadMoreChildren,
+    loadDescendants,
     toggleExpand,
     createChild,
     patchSubtreeNode,

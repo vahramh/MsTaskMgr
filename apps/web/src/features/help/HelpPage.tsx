@@ -323,9 +323,39 @@ const quickAnswers: QuickAnswer[] = [
     answer:
       "Check Settings for the email schedule and recommendation count, then check the Contexts tab for significant contexts. Emails are generated around significant contexts and available recommendations; zero-minute context budgets or no significant contexts can make the email unhelpful or empty.",
   },
+  {
+    question: "How do new users get access?",
+    answer:
+      "EGS is currently invitation-only. Self sign-up is disabled in Cognito. New users should request access by email, then an administrator creates their Cognito user account.",
+  },
+  {
+    question: "How do I capture a task quickly from my phone?",
+    answer:
+      "Use /capture on mobile for the quick voice capture page. It can be added to the home screen as a focused capture entry point and saves spoken tasks into EGS after you review the parsed preview.",
+  },
 ];
 
 const workflowRecipes: WorkflowRecipe[] = [
+  {
+    title: "Request access",
+    purpose: "Control private beta access while Cognito self sign-up is disabled.",
+    steps: [
+      "Ask the prospective user to email vahramh@melsoft.com.au.",
+      "Create the user manually in the Cognito user pool.",
+      "Send the Cognito invitation or temporary-password flow so the user can set their own password.",
+      "Keep the landing page as the public explanation and sign-in entry point.",
+    ],
+  },
+  {
+    title: "Capture by voice",
+    purpose: "Add a task quickly without opening the full task surface.",
+    steps: [
+      "Open /capture, preferably from the phone home-screen shortcut.",
+      "Tap Speak and say the task naturally, including useful words such as tomorrow, priority 2, at home, or waiting for John.",
+      "Review the parsed preview for title, state, due date, priority, context, and waiting information.",
+      "Save the task to EGS, then process or refine it later from Tasks if required.",
+    ],
+  },
   {
     title: "Process Inbox",
     purpose: "Turn captured fragments into meaningful system records.",
@@ -612,6 +642,34 @@ const helpChapters: HelpChapter[] = [
     },
   },
   {
+    id: "app-access",
+    tab: "app",
+    label: "Access and sign-in",
+    title: "Invitation-only access and sign-in",
+    summary:
+      "Public self sign-up is disabled. The public landing page explains that EGS is invitation-only and directs prospective users to request an account by email.",
+    items: [
+      {
+        title: "Requesting an account",
+        body: [
+          "New users cannot create their own accounts from the hosted sign-in flow. They should email vahramh@melsoft.com.au to request access.",
+        ],
+      },
+      {
+        title: "Creating an account",
+        body: [
+          "An administrator creates the user manually in the Cognito user pool, then the user completes the Cognito invitation or temporary-password flow.",
+        ],
+      },
+      {
+        title: "Existing users",
+        body: [
+          "Existing users use the Sign in button on the landing page or Help page. After authentication, the app opens the protected EGS surfaces.",
+        ],
+      },
+    ],
+  },
+  {
     id: "app-surfaces",
     tab: "app",
     label: "Application surfaces",
@@ -622,13 +680,13 @@ const helpChapters: HelpChapter[] = [
       {
         title: "Tasks",
         body: [
-          "Capture, clarify, edit, and structure work. This is where projects, actions, child actions, states, dates, priority, effort, remaining time, minimum duration, and context are modelled.",
+          "Capture, clarify, edit, and structure work. This is where projects, actions, child actions, states, dates, priority, effort, remaining time, minimum duration, capture source, and context are modelled.",
         ],
       },
       {
         title: "Today",
         body: [
-          "Use Today to decide what deserves attention now. It contains Best Next Action, Recommended Tasks, Guided Actions, Needs Attention where applicable, and Project Health.",
+          "Use Today to decide what deserves attention now. It contains Best Next Action or Best Next Move, scheduled commitments, Recommended Tasks, Guided Actions, Needs Attention where applicable, Project Heat, and Project Health.",
         ],
       },
       {
@@ -647,6 +705,34 @@ const helpChapters: HelpChapter[] = [
         title: "Settings",
         body: [
           "Configure recommendation email schedule, recommendation count, send recommendation email now, and review significant context summary.",
+        ],
+      },
+    ],
+  },
+  {
+    id: "app-quick-capture",
+    tab: "app",
+    label: "Quick voice capture",
+    title: "Quick mobile voice capture",
+    summary:
+      "The /capture route is a focused mobile-friendly entry point for recording a task by voice and saving it into EGS.",
+    items: [
+      {
+        title: "What it does",
+        body: [
+          "The capture page uses built-in browser speech recognition, shows the transcript, parses the likely title, state, due date, priority, context, and waiting fields, then saves the result as an action.",
+        ],
+      },
+      {
+        title: "Natural language cues",
+        body: [
+          "Phrases such as tomorrow, by Friday, priority 2, at home, in office, or waiting for John can be recognised and placed into task metadata. Review the parsed preview before saving.",
+        ],
+      },
+      {
+        title: "Home-screen capture shortcut",
+        body: [
+          "The capture page switches to the capture manifest while it is open, so adding /capture to a mobile home screen can create a focused quick-capture shortcut rather than opening the main Today screen.",
         ],
       },
     ],

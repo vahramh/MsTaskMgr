@@ -124,6 +124,17 @@ function normaliseWhitespace(text: string): string {
   return text.replace(/\s{2,}/g, " ").replace(/\s+([,.;:!?])/g, "$1").trim();
 }
 
+function dateIntentForMatch(text: string, matchIndex: number): { isDeadline: boolean; removeStart: number } {
+  const before = text.slice(0, matchIndex);
+
+  const deadlinePrefix = before.match(/(?:\b(?:due\s+by|due|by|before|no\s+later\s+than|deadline\s+by|deadline)\s+)$/i);
+  if (deadlinePrefix) {
+    return { isDeadline: true, removeStart: matchIndex - deadlinePrefix[0].length };
+  }
+
+  return { isDeadline: false, removeStart: matchIndex };
+}
+
 export type ParsedVoiceCapture = {
   cleanTitle: string;
   dueDate?: string;
@@ -171,6 +182,7 @@ export function parseVoiceTaskCapture(raw: string, now = new Date()): ParsedVoic
   }
 
   let resolvedDate: Date | null = null;
+  let dateIsDeadline = false;
   const dateResolvers: Array<[RegExp, (match: RegExpMatchArray) => Date | null]> = [
     [/\bday after tomorrow\b/i, () => addDaysLocal(now, 2)],
     [/\btomorrow\b/i, () => addDaysLocal(now, 1)],
@@ -198,7 +210,9 @@ export function parseVoiceTaskCapture(raw: string, now = new Date()): ParsedVoic
     const resolved = resolver(match);
     if (resolved) {
       resolvedDate = resolved;
-      text = text.replace(match[0], " ");
+      const dateIntent = dateIntentForMatch(text, match.index ?? 0);
+      dateIsDeadline = dateIntent.isDeadline;
+      text = `${text.slice(0, dateIntent.removeStart)} ${text.slice((match.index ?? 0) + match[0].length)}`;
       break;
     }
   }
@@ -207,7 +221,9 @@ export function parseVoiceTaskCapture(raw: string, now = new Date()): ParsedVoic
   if (!resolvedDate && isoDateMatch && isValidIsoDateOnly(isoDateMatch[1])) {
     const [year, month, day] = isoDateMatch[1].split("-").map(Number);
     resolvedDate = new Date(year, month - 1, day, 0, 0, 0, 0);
-    text = text.replace(isoDateMatch[0], " ");
+    const dateIntent = dateIntentForMatch(text, isoDateMatch.index ?? 0);
+    dateIsDeadline = dateIntent.isDeadline;
+    text = `${text.slice(0, dateIntent.removeStart)} ${text.slice((isoDateMatch.index ?? 0) + isoDateMatch[0].length)}`;
   }
 
   let resolvedTime: { hours: number; minutes: number } | null = null;
@@ -233,14 +249,18 @@ export function parseVoiceTaskCapture(raw: string, now = new Date()): ParsedVoic
 
   if (resolvedDate) {
     result.dueDate = formatDateOnlyLocal(resolvedDate);
-    result.state = "scheduled";
+    if (!dateIsDeadline) {
+      result.state = "scheduled";
+    }
   }
 
   if (resolvedDate && resolvedTime) {
     const dateTime = applyTimeToDate(resolvedDate, resolvedTime);
     result.dueDate = formatDateOnlyLocal(dateTime);
     result.dueTime = formatTimeLocal(dateTime);
-    result.state = "scheduled";
+    if (!dateIsDeadline) {
+      result.state = "scheduled";
+    }
   }
 
   const waitingMatch = text.match(/\bwaiting for\s+(.+)$/i);

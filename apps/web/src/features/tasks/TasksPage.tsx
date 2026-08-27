@@ -35,6 +35,32 @@ async function tryCopy(text: string): Promise<void> {
   }
 }
 
+function collectLoadedDescendants(
+  rootTaskId: string,
+  subtrees: Record<string, { items: Task[] }>
+): Task[] {
+  const result: Task[] = [];
+  const queue = [rootTaskId];
+  const visitedParents = new Set<string>();
+  const seenTasks = new Set<string>();
+
+  while (queue.length > 0) {
+    const parentTaskId = queue.shift()!;
+    if (visitedParents.has(parentTaskId)) continue;
+    visitedParents.add(parentTaskId);
+
+    for (const task of subtrees[parentTaskId]?.items ?? []) {
+      if (!seenTasks.has(task.taskId)) {
+        seenTasks.add(task.taskId);
+        result.push(task);
+      }
+      queue.push(task.taskId);
+    }
+  }
+
+  return result;
+}
+
 export default function TasksPage() {
   const { tokens } = useAuth();
   const executionContexts = useExecutionContexts(tokens);
@@ -157,6 +183,7 @@ export default function TasksPage() {
     setExpandedOn,
     loadChildren,
     loadMoreChildren,
+    loadDescendants,
     toggleExpand,
     createChild,
     patchSubtreeNode,
@@ -286,8 +313,7 @@ export default function TasksPage() {
       completed: 0,
     };
     if (!focusId) return counts;
-    const subtree = subtrees[focusId];
-    const list = subtree?.items ?? [];
+    const list = collectLoadedDescendants(focusId, subtrees);
     counts.all = list.length;
     for (const task of list) {
       const state = deriveState(task);
@@ -298,8 +324,8 @@ export default function TasksPage() {
 
   const focusedProjectDiagnostics = useMemo(() => {
     if (!focusedProject || !focusId) return null;
-    const subtree = subtrees[focusId];
-    return computeFocusedProjectDiagnostics(focusedProject, subtree?.items ?? [], new Date());
+    const descendants = collectLoadedDescendants(focusId, subtrees);
+    return computeFocusedProjectDiagnostics(focusedProject, descendants, new Date());
   }, [focusedProject, focusId, subtrees]);
 
 
@@ -393,9 +419,9 @@ export default function TasksPage() {
   useEffect(() => {
     if (!focusId) return;
     if (view !== "projects") return;
-    void loadChildren(focusId);
+    void loadDescendants(focusId);
     setExpandedOn(focusId, true);
-  }, [focusId, view, loadChildren, setExpandedOn]);
+  }, [focusId, view, loadDescendants, setExpandedOn]);
 
   useEffect(() => {
     if (!editId) return;
@@ -641,7 +667,7 @@ export default function TasksPage() {
             focusViewDefs={FOCUS_VIEW_DEFS}
             onSelectFocusView={setFocusView}
             onRefresh={() => {
-              void loadChildren(focusId, true);
+              void loadDescendants(focusId, true);
             }}
             refreshDisabled={!tokens}
             projectSummary={focusedProject ? (

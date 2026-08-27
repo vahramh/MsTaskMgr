@@ -64,8 +64,8 @@ export default function Home() {
           </div>
 
           <div className="marketing-note">
-            Sign-up and billing flows can be added later. For now, this landing page explains
-            the product clearly and gives existing users a professional entry point.
+            EGS is currently invitation-only. If you would like an account, email{" "}
+            <a href="mailto:vahramh@melsoft.com.au">vahramh@melsoft.com.au</a>.
           </div>
 
           {status ? <div className="marketing-status">{status}</div> : null}
